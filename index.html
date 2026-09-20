@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+<title>Orario T. Tasso</title>
+</head>
+<body>
+
+<!-- SCHERMATA DI SBLOCCO -->
+<section id="lock" class="lock">
+  <div class="lock-box">
+    <div class="lock-logo" aria-hidden="true"></div>
+    <h1>Orario</h1>
+    <p class="muted" id="lockSub">Inserisci la passphrase per aprire i dati.</p>
+    <form id="lockForm" autocomplete="off">
+      <input type="password" id="pass" placeholder="Passphrase" autocomplete="current-password" enterkeyhint="go">
+      <label class="check"><input type="checkbox" id="remember" checked> Ricorda su questo dispositivo</label>
+      <button type="submit" class="primary block" id="lockBtn">Apri</button>
+    </form>
+    <p class="err" id="lockErr" hidden></p>
+  </div>
+</section>
+
+<!-- APP -->
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="topbar-in">
+      <h1 id="title">Oggi</h1>
+      <button id="backBtn" class="icon-btn" hidden aria-label="Indietro">‹</button>
+    </div>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="home" class="on"><span class="ti">▦</span>Il mio orario</button>
+    <button data-tab="colleghi"><span class="ti">☰</span>Colleghi</button>
+    <button data-tab="impostazioni"><span class="ti">⚙</span>Impostazioni</button>
+  </nav>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="data-enc.js" onerror="window.ORARIO_ENC_MISSING=true"></script>
+<script src="app.js"></script>
+</body>
+</html>

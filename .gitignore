@@ -1,0 +1,11 @@
+# MAI committare i dati in chiaro
+dati-originali.json
+orario-tasso-*.json
+*.backup.json
+
+# file di sistema
+Thumbs.db
+.DS_Store
+desktop.ini
+*.tmp
+~$*

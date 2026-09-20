@@ -1,0 +1,392 @@
+/* Orario T. Tasso — app.js
+   Vanilla JS, nessuna dipendenza. Dati cifrati AES-GCM, chiave da passphrase (PBKDF2).
+   I dati modificati restano in localStorage, cifrati con la stessa chiave. */
+(function () {
+'use strict';
+
+/* ============ utilità ============ */
+const $ = (s, r) => (r || document).querySelector(s);
+const enc = new TextEncoder(), dec = new TextDecoder();
+const LS_DATA = 'orario.tasso.data', LS_KEY = 'orario.tasso.key';
+const CLASSE = /^[123][ABCDEF]$/;
+const DAYNAME = { LUN: 'Lunedì', MAR: 'Martedì', MER: 'Mercoledì', GIO: 'Giovedì', VEN: 'Venerdì' };
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function b64e(buf) { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+function b64d(str) { const s = atob(str), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+let toastT;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2200);
+}
+
+/* ============ crypto ============ */
+async function deriveKey(pass, salt, iter) {
+  const km = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+async function encryptObj(obj, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
+  return { v: 1, iv: b64e(iv), ct: b64e(ct) };
+}
+async function decryptObj(p, key) {
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(p.iv) }, key, b64d(p.ct));
+  return JSON.parse(dec.decode(pt));
+}
+
+/* ============ stato ============ */
+let KEY = null, ORIGINALE = null, DATA = null;
+let tab = 'home', giorno = null, schedaId = null, filtro = '';
+
+/* ============ avvio ============ */
+async function boot() {
+  const box = window.ORARIO_ENC;
+  if (!box) {
+    $('#lockSub').innerHTML = 'Manca il file <b>data-enc.js</b>.<br>Generalo con <b>cifra.html</b> (vedi README).';
+    $('#lockForm').hidden = true;
+    return;
+  }
+  const saved = localStorage.getItem(LS_KEY);
+  if (saved) {
+    try {
+      KEY = await crypto.subtle.importKey('raw', b64d(saved), 'AES-GCM', true, ['encrypt', 'decrypt']);
+      await apri();
+      return;
+    } catch (e) { localStorage.removeItem(LS_KEY); }
+  }
+  $('#pass').focus();
+}
+
+$('#lockForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const box = window.ORARIO_ENC, pass = $('#pass').value;
+  const btn = $('#lockBtn'); btn.disabled = true; btn.textContent = 'Apro…'; $('#lockErr').hidden = true;
+  try {
+    KEY = await deriveKey(pass, b64d(box.salt), box.iter || 310000);
+    await apri();
+    if ($('#remember').checked) {
+      const raw = await crypto.subtle.exportKey('raw', KEY);
+      localStorage.setItem(LS_KEY, b64e(raw));
+    }
+  } catch (e) {
+    KEY = null;
+    $('#lockErr').textContent = 'Passphrase errata.'; $('#lockErr').hidden = false;
+    $('#pass').select();
+  } finally { btn.disabled = false; btn.textContent = 'Apri'; }
+});
+
+async function apri() {
+  ORIGINALE = await decryptObj(window.ORARIO_ENC, KEY);
+  DATA = null;
+  const loc = localStorage.getItem(LS_DATA);
+  if (loc) { try { DATA = await decryptObj(JSON.parse(loc), KEY); } catch (e) { } }
+  if (!DATA) DATA = clone(ORIGINALE);
+  normalizza(DATA);
+  $('#lock').hidden = true; $('#app').hidden = false;
+  giorno = oggiOpp();
+  render();
+}
+
+function normalizza(d) {
+  d.giorni = d.giorni || ['LUN', 'MAR', 'MER', 'GIO', 'VEN'];
+  d.orari = d.orari || ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00'];
+  d.docenti.forEach(t => d.giorni.forEach(g => {
+    if (!Array.isArray(t.celle[g])) t.celle[g] = ['', '', '', '', '', ''];
+    while (t.celle[g].length < 6) t.celle[g].push('');
+  }));
+}
+
+function oggiOpp() {
+  const n = new Date().getDay();            // 0 dom … 6 sab
+  return (n >= 1 && n <= 5) ? DATA.giorni[n - 1] : DATA.giorni[0];
+}
+
+async function salva() {
+  try { localStorage.setItem(LS_DATA, JSON.stringify(await encryptObj(DATA, KEY))); }
+  catch (e) { toast('Salvataggio non riuscito'); }
+}
+
+/* ============ query sui dati ============ */
+const io = () => DATA.docenti.find(t => t.id === DATA.io) || DATA.docenti[0];
+const byId = id => DATA.docenti.find(t => t.id === id);
+function classi() {
+  const s = new Set();
+  DATA.docenti.forEach(t => DATA.giorni.forEach(g => t.celle[g].forEach(v => { if (CLASSE.test(v)) s.add(v); })));
+  return [...s].sort();
+}
+/** chi altro è in quella classe, quel giorno, quell'ora */
+function compresenze(classe, g, h, esclusoId) {
+  const out = { cur: [], l2: [], sos: [], edu: [] };
+  DATA.docenti.forEach(t => {
+    if (t.id === esclusoId) return;
+    if (t.celle[g][h] !== classe) return;
+    if (t.ruolo === 'sostegno') out.sos.push(t);
+    else if (t.ruolo === 'educatrice') out.edu.push(t);
+    else if (t.ruolo === 'l2') out.l2.push(t);
+    else out.cur.push(t);
+  });
+  return out;
+}
+const cognome = t => t.nome;
+const ETICHETTE = {
+  'LETTERE': 'Lettere', 'MATEMATICA': 'Matematica', 'ITALIANO L2': 'Italiano L2',
+  'ED FISICA': 'Ed. fisica', 'TECNOLOGIA': 'Tecnologia', 'ARTE': 'Arte', 'MUSICA': 'Musica',
+  'INGLESE': 'Inglese', 'SPAGNOLO': 'Spagnolo', 'FRANCESE': 'Francese', 'TEDESCO': 'Tedesco',
+  'RELIGIONE': 'Religione', 'SOSTEGNO': 'Sostegno', 'EDUCATRICE': 'Educatrice'
+};
+function materiaBreve(t) {
+  const m = (t.materia || '').trim().toUpperCase();
+  return ETICHETTE[m] || (m ? m.charAt(0) + m.slice(1).toLowerCase() : '');
+}
+
+/* ============ render ============ */
+function render() {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  const back = $('#backBtn');
+  back.hidden = !(tab === 'colleghi' && schedaId);
+  if (tab === 'home') { $('#title').textContent = 'Il mio orario'; viewHome(); }
+  else if (tab === 'colleghi') {
+    if (schedaId) { $('#title').textContent = 'Scheda'; viewScheda(); }
+    else { $('#title').textContent = 'Colleghi'; viewColleghi(); }
+  } else { $('#title').textContent = 'Impostazioni'; viewImpostazioni(); }
+  window.scrollTo(0, 0);
+}
+
+function viewHome() {
+  const me = io(), oggi = oggiOpp();
+  let h = '<div class="days">' + DATA.giorni.map(g =>
+    `<button data-g="${g}" class="${g === giorno ? 'on' : ''} ${g === oggi ? 'today' : ''}">${g}</button>`).join('') + '</div>';
+
+  h += '<ul class="ore">';
+  for (let i = 0; i < 6; i++) {
+    const v = me.celle[giorno][i], ora = DATA.orari[i] || '';
+    if (!v) {
+      h += `<li><button class="ora vuota" data-cell="${giorno}|${i}|${me.id}">
+        <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
+        <span class="ora-body"><span class="muted">libera</span></span></button></li>`;
+      continue;
+    }
+    if (!CLASSE.test(v)) {
+      h += `<li><button class="ora" data-cell="${giorno}|${i}|${me.id}">
+        <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
+        <span class="ora-body"><span class="ora-top"><span class="cls alt">${esc(v)}</span></span></span></button></li>`;
+      continue;
+    }
+    const c = compresenze(v, giorno, i, me.id);
+    const titolari = c.cur.concat(c.l2);
+    const principale = titolari.length
+      ? titolari.map(t => `${esc(cognome(t))}`).join(' + ')
+      : '<span class="nocur">nessun curricolare</span>';
+    const mat = titolari.length ? titolari.map(t => esc(materiaBreve(t))).join(' + ') : '';
+    const altri = c.sos.concat(c.edu).map(t => esc(cognome(t)) + (t.ruolo === 'educatrice' ? ' (educ.)' : ' (sost.)'));
+    h += `<li><button class="ora" data-cell="${giorno}|${i}|${me.id}">
+      <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
+      <span class="ora-body">
+        <span class="ora-top"><span class="cls">${esc(v)}</span><span class="cur">${principale}</span></span>
+        <span class="ora-sub">${mat}${altri.length ? ' · anche ' + altri.join(', ') : ''}</span>
+      </span></button></li>`;
+  }
+  h += '</ul>';
+
+  const n = DATA.giorni.reduce((a, g) => a + me.celle[g].filter(v => v).length, 0);
+  h += `<p class="hint">${esc(me.nome)} — ${n} ore in griglia · ${esc(me.cattedra)}<br>Tocca una cella per modificarla.</p>`;
+  $('#view').innerHTML = h;
+  document.querySelectorAll('.days button').forEach(b => b.onclick = () => { giorno = b.dataset.g; render(); });
+  bindCelle();
+}
+
+function viewColleghi() {
+  const f = filtro.trim().toLowerCase();
+  const lista = DATA.docenti.filter(t => {
+    if (!f) return true;
+    const cls = DATA.giorni.map(g => t.celle[g].join(' ')).join(' ');
+    return (t.nome + ' ' + t.cattedra + ' ' + cls).toLowerCase().includes(f);
+  });
+  let h = `<input class="search" id="q" type="search" placeholder="Cerca docente, materia o classe" value="${esc(filtro)}">`;
+  h += '<ul class="list">' + lista.map(t => `<li><button data-id="${t.id}">
+      <span class="nm">${esc(t.nome)}</span>
+      <span class="tag ${t.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(t))}</span></button></li>`).join('') + '</ul>';
+  if (!lista.length) h += '<p class="hint">Nessun risultato.</p>';
+  $('#view').innerHTML = h;
+  const q = $('#q');
+  q.oninput = () => { filtro = q.value; const p = q.selectionStart; viewColleghi(); const n = $('#q'); n.focus(); n.setSelectionRange(p, p); };
+  document.querySelectorAll('.list button').forEach(b => b.onclick = () => { schedaId = b.dataset.id; render(); });
+}
+
+function viewScheda() {
+  const t = byId(schedaId); if (!t) { schedaId = null; return render(); }
+  const me = io();
+  let conMe = 0;
+  let h = `<div class="card"><h2>${esc(t.nome)}</h2><div class="sub">${esc(t.cattedra)}</div></div>`;
+  h += '<div class="card"><table class="grid"><thead><tr><th></th>' +
+    DATA.giorni.map(g => `<th>${g}</th>`).join('') + '</tr></thead><tbody>';
+  for (let i = 0; i < 6; i++) {
+    h += `<tr><td class="h">${i + 1}ª</td>`;
+    for (const g of DATA.giorni) {
+      const v = t.celle[g][i];
+      const insieme = v && CLASSE.test(v) && me.id !== t.id && me.celle[g][i] === v;
+      if (insieme) conMe++;
+      const cls = 'cell' + (v ? ' has' : '') + (insieme ? ' me' : '');
+      const inner = !v ? '' : (CLASSE.test(v) ? `<b>${esc(v)}</b>` : `<small>${esc(v)}</small>`);
+      h += `<td><button class="${cls}" data-cell="${g}|${i}|${t.id}" title="${esc(v)}">${inner}</button></td>`;
+    }
+    h += '</tr>';
+  }
+  h += '</tbody></table></div>';
+  const n = DATA.giorni.reduce((a, g) => a + t.celle[g].filter(v => v).length, 0);
+  h += `<p class="hint">${n} ore in griglia${t.id !== me.id ? ` · ${conMe} ore in classe con te` : ''}<br>Tocca una cella per modificarla.</p>`;
+  $('#view').innerHTML = h;
+  bindCelle();
+}
+
+function viewImpostazioni() {
+  const m = DATA.meta || {};
+  let h = '<div class="sec">Docente principale</div><div class="rows"><div class="row"><span class="lbl">Home mostra</span>' +
+    '<select id="selIo">' + DATA.docenti.map(t => `<option value="${t.id}" ${t.id === DATA.io ? 'selected' : ''}>${esc(t.nome)}</option>`).join('') + '</select></div></div>';
+
+  h += '<div class="sec">Orario delle lezioni</div><div class="rows"><div class="times">' +
+    DATA.orari.map((v, i) => `<label>${i + 1}ª <input type="time" data-ora="${i}" value="${esc(v)}"></label>`).join('') + '</div></div>';
+
+  h += '<div class="sec">Dati</div><div class="rows">' +
+    '<button class="row" data-act="export"><span class="lbl">Esporta backup JSON</span><span class="val">›</span></button>' +
+    '<button class="row" data-act="import"><span class="lbl">Importa backup JSON</span><span class="val">›</span></button>' +
+    '<button class="row" data-act="enc"><span class="lbl">Esporta data-enc.js (per GitHub)</span><span class="val">›</span></button>' +
+    '<button class="row danger" data-act="reset"><span class="lbl">Ripristina orario originale</span><span class="val">›</span></button>' +
+    '</div>';
+
+  const ric = !!localStorage.getItem(LS_KEY);
+  h += '<div class="sec">Sicurezza</div><div class="rows">' +
+    `<div class="row"><span class="lbl">Ricorda su questo dispositivo</span><input type="checkbox" id="ric" ${ric ? 'checked' : ''}></div>` +
+    '<button class="row" data-act="lock"><span class="lbl">Blocca adesso</span><span class="val">›</span></button></div>';
+
+  h += `<div class="sec">Info</div><div class="rows">
+    <div class="row"><span class="lbl">Scuola</span><span class="val">${esc(m.scuola || '')}</span></div>
+    <div class="row"><span class="lbl">Anno</span><span class="val">${esc(m.anno || '')}</span></div>
+    <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(m.generato || '')}</span></div>
+    <div class="row"><span class="lbl">Versione app</span><span class="val">1.0</span></div></div>`;
+  h += '<p class="hint">Orario provvisorio: le modifiche fatte qui restano su questo dispositivo.</p>';
+  $('#view').innerHTML = h;
+
+  $('#selIo').onchange = e => { DATA.io = e.target.value; salva(); toast('Aggiornato'); };
+  document.querySelectorAll('[data-ora]').forEach(inp => inp.onchange = () => {
+    DATA.orari[+inp.dataset.ora] = inp.value; salva();
+  });
+  $('#ric').onchange = async e => {
+    if (e.target.checked) { const raw = await crypto.subtle.exportKey('raw', KEY); localStorage.setItem(LS_KEY, b64e(raw)); toast('Passphrase memorizzata'); }
+    else { localStorage.removeItem(LS_KEY); toast('Passphrase dimenticata'); }
+  };
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => azione(b.dataset.act));
+}
+
+/* ============ modifica celle ============ */
+function bindCelle() {
+  document.querySelectorAll('[data-cell]').forEach(b => b.onclick = () => {
+    const [g, h, id] = b.dataset.cell.split('|');
+    editCella(g, +h, id);
+  });
+}
+
+function editCella(g, h, id) {
+  const t = byId(id), v = t.celle[g][h];
+  const cl = classi();
+  const html = `<h3>${DAYNAME[g] || g} · ${h + 1}ª ora</h3>
+    <p class="sub">${esc(t.nome)}${DATA.orari[h] ? ' · ' + esc(DATA.orari[h]) : ''}</p>
+    <div class="chips">${cl.map(c => `<button data-c="${c}" class="${c === v ? 'on' : ''}">${c}</button>`).join('')}</div>
+    <label class="fld">Oppure testo libero (altro plesso, potenziamento, nota…)
+      <input id="free" value="${CLASSE.test(v) ? '' : esc(v)}" placeholder="es. Boiardo, Potenziamento, Riunione"></label>
+    <div class="acts">
+      <button data-a="clear" class="del">Svuota</button>
+      <button data-a="cancel">Annulla</button>
+      <button data-a="save" class="primary">Salva</button>
+    </div>`;
+  openModal(html, root => {
+    const set = val => { t.celle[g][h] = val; salva(); closeModal(); render(); };
+    root.querySelectorAll('.chips button').forEach(b => b.onclick = () => set(b.dataset.c));
+    root.querySelector('[data-a="clear"]').onclick = () => set('');
+    root.querySelector('[data-a="cancel"]').onclick = closeModal;
+    root.querySelector('[data-a="save"]').onclick = () => set(root.querySelector('#free').value.trim());
+  });
+}
+
+function openModal(html, onMount) {
+  const root = document.createElement('div');
+  root.className = 'mask';
+  root.innerHTML = `<div class="sheet">${html}</div>`;
+  root.addEventListener('click', e => { if (e.target === root) closeModal(); });
+  $('#modalRoot').appendChild(root);
+  if (onMount) onMount(root);
+}
+function closeModal() { $('#modalRoot').innerHTML = ''; }
+
+/* ============ azioni impostazioni ============ */
+function download(nome, testo, tipo) {
+  const b = new Blob([testo], { type: tipo || 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = nome;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+
+async function azione(a) {
+  if (a === 'export') {
+    download('orario-tasso-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(DATA, null, 1));
+    toast('Backup esportato');
+  }
+  if (a === 'import') {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = () => {
+      const f = inp.files[0]; if (!f) return;
+      const fr = new FileReader();
+      fr.onload = () => {
+        try {
+          const d = JSON.parse(fr.result);
+          if (!d.docenti) throw 0;
+          DATA = d; normalizza(DATA); salva(); render(); toast('Dati importati');
+        } catch (e) { toast('File non valido'); }
+      };
+      fr.readAsText(f);
+    };
+    inp.click();
+  }
+  if (a === 'enc') {
+    const box = window.ORARIO_ENC;
+    const p = await encryptObj(DATA, KEY);
+    const out = { v: 1, kdf: 'PBKDF2-SHA256', iter: box.iter, salt: box.salt, iv: p.iv, ct: p.ct };
+    download('data-enc.js', 'window.ORARIO_ENC = ' + JSON.stringify(out) + ';\n', 'application/javascript');
+    toast('data-enc.js esportato');
+  }
+  if (a === 'reset') {
+    openModal(`<h3>Ripristinare l'orario originale?</h3>
+      <p class="sub">Tutte le modifiche salvate su questo dispositivo verranno perse.</p>
+      <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary del">Ripristina</button></div>`,
+      root => {
+        root.querySelector('[data-a="no"]').onclick = closeModal;
+        root.querySelector('[data-a="si"]').onclick = () => {
+          DATA = clone(ORIGINALE); normalizza(DATA); salva(); closeModal(); giorno = oggiOpp(); render(); toast('Orario ripristinato');
+        };
+      });
+  }
+  if (a === 'lock') {
+    localStorage.removeItem(LS_KEY); KEY = null; DATA = null;
+    $('#app').hidden = true; $('#lock').hidden = false; $('#pass').value = ''; $('#pass').focus();
+  }
+}
+
+/* ============ navigazione ============ */
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  if (b.dataset.tab === 'colleghi' && tab === 'colleghi') schedaId = null;
+  tab = b.dataset.tab; render();
+});
+$('#backBtn').onclick = () => { schedaId = null; render(); };
+
+/* ============ service worker ============ */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
+}
+
+boot();
+})();

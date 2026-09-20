@@ -1,0 +1,150 @@
+/* Orario T. Tasso — stile minimale, mobile first */
+:root{
+  --bg:#f4f5f7; --card:#ffffff; --ink:#15181d; --muted:#6b7280;
+  --line:#e4e7ec; --accent:#1d4ed8; --soft:#eaf0ff; --warn:#b45309;
+  --r:14px; --safe: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1115; --card:#171a20; --ink:#e9ebef; --muted:#9aa1ad;
+         --line:#272b33; --accent:#6f9bff; --soft:#1a2340; --warn:#f0b357; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none !important}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  overflow-x:hidden;
+}
+h1,h2,h3{margin:0;font-weight:650}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+.muted{color:var(--muted)}
+.err{color:#c0392b;font-size:.9rem}
+
+/* ---------- lock ---------- */
+.lock{min-height:100dvh;display:grid;place-items:center;padding:24px}
+.lock-box{width:100%;max-width:340px;text-align:center}
+.lock-logo{width:64px;height:64px;margin:0 auto 18px;border-radius:18px;background:var(--accent);
+  position:relative}
+.lock-logo::before{content:"";position:absolute;inset:16px;border-radius:4px;
+  background:
+   linear-gradient(#fff,#fff) 0 0/100% 5px no-repeat,
+   linear-gradient(#fff,#fff) 0 12px/100% 5px no-repeat,
+   linear-gradient(#fff,#fff) 0 24px/64% 5px no-repeat;}
+.lock h1{font-size:1.5rem;margin-bottom:6px}
+.lock p{margin:0 0 20px}
+.lock input[type=password]{width:100%;padding:14px 16px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);margin-bottom:12px}
+.check{display:flex;gap:9px;align-items:center;justify-content:center;font-size:.9rem;color:var(--muted);margin-bottom:16px}
+.check input{width:18px;height:18px}
+.primary{background:var(--accent);color:#fff;border-radius:12px;padding:13px 18px;font-weight:600}
+.block{display:block;width:100%}
+
+/* ---------- chrome ---------- */
+.topbar{position:sticky;top:0;z-index:20;background:var(--bg);
+  padding:max(env(safe-area-inset-top),8px) 16px 6px;border-bottom:1px solid transparent}
+.topbar-in{display:flex;align-items:center;gap:8px;min-height:36px}
+.topbar h1{font-size:1.32rem;flex:1;order:2}
+.icon-btn{order:1;font-size:1.9rem;line-height:1;width:34px;height:34px;color:var(--accent);margin-left:-8px}
+.view{padding:6px 16px calc(84px + var(--safe));max-width:760px;margin:0 auto}
+
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+  background:var(--card);border-top:1px solid var(--line);padding-bottom:var(--safe)}
+.tabs button{flex:1;padding:9px 4px 10px;font-size:.7rem;color:var(--muted);display:flex;
+  flex-direction:column;align-items:center;gap:3px}
+.tabs button.on{color:var(--accent)}
+.tabs .ti{font-size:1.15rem;line-height:1}
+
+/* ---------- giorni ---------- */
+.days{display:flex;gap:6px;margin:8px 0 14px;overflow-x:auto;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.days button{flex:1;min-width:58px;padding:9px 4px;border-radius:11px;background:var(--card);
+  border:1px solid var(--line);font-size:.82rem;font-weight:600;color:var(--muted)}
+.days button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.days button.today::after{content:"•";margin-left:4px}
+
+/* ---------- ore ---------- */
+.ore{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ora{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:12px 14px;align-items:flex-start;text-align:left;width:100%;min-height:62px}
+.ora:active{background:var(--soft)}
+.ora-n{flex:0 0 46px;display:flex;flex-direction:column;align-items:flex-start}
+.ora-n b{font-size:1rem}
+.ora-n span{font-size:.72rem;color:var(--muted)}
+.ora-body{flex:1;min-width:0}
+.ora-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.cls{background:var(--accent);color:#fff;border-radius:8px;padding:2px 9px;font-weight:700;font-size:.95rem;letter-spacing:.3px}
+.cls.alt{background:var(--soft);color:var(--accent)}
+.cur{font-weight:600}
+.ora-sub{font-size:.83rem;color:var(--muted);margin-top:3px}
+.ora.vuota{opacity:.55}
+.ora.vuota .ora-body{padding-top:2px}
+.nocur{color:var(--warn);font-weight:600}
+
+.hint{font-size:.8rem;color:var(--muted);margin:14px 2px 0;text-align:center}
+.banner{background:var(--soft);color:var(--accent);border-radius:12px;padding:10px 12px;font-size:.84rem;margin-bottom:12px}
+
+/* ---------- colleghi ---------- */
+.search{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);margin:6px 0 12px}
+.list{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.list li+li{border-top:1px solid var(--line)}
+.list button{width:100%;text-align:left;padding:13px 14px;display:flex;align-items:center;gap:10px}
+.list button:active{background:var(--soft)}
+.nm{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:.68rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);
+  border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap}
+.tag.s{color:var(--accent);border-color:var(--accent)}
+
+/* ---------- scheda docente ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.card h2{font-size:1.1rem}
+.card .sub{font-size:.85rem;color:var(--muted);margin-top:4px}
+.grid{width:100%;border-collapse:collapse;table-layout:fixed}
+.grid th{font-size:.7rem;color:var(--muted);font-weight:600;padding:4px 0}
+.grid td{padding:2px}
+.grid .h{width:24px;font-size:.7rem;color:var(--muted);text-align:center}
+.cell{width:100%;min-height:44px;border-radius:9px;border:1px solid var(--line);background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2px;overflow:hidden}
+.cell b{font-size:.92rem;font-weight:700}
+.cell small{font-size:.6rem;color:var(--muted);line-height:1.1;text-align:center;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.cell.has{background:var(--soft);border-color:transparent;color:var(--accent)}
+.cell.me{box-shadow:inset 0 0 0 2px var(--accent)}
+.cell:active{opacity:.6}
+
+/* ---------- impostazioni ---------- */
+.sec{margin:18px 0 8px;font-size:.74rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.rows{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.row{display:flex;align-items:center;gap:10px;padding:13px 14px;width:100%;text-align:left}
+.row+.row{border-top:1px solid var(--line)}
+.row .lbl{flex:1}
+.row .val{color:var(--muted);font-size:.86rem}
+.row select,.row input[type=time]{border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:7px 9px}
+.row.danger .lbl{color:#c0392b}
+.times{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px 14px}
+.times label{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted)}
+.times input{flex:1;min-width:0}
+
+/* ---------- modal ---------- */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:18px 18px calc(18px + var(--safe));
+  max-height:86dvh;overflow:auto;animation:up .18s ease}
+@keyframes up{from{transform:translateY(24px);opacity:.4}}
+@media(min-width:560px){.mask{align-items:center}.sheet{border-radius:18px;margin:16px}}
+.sheet h3{font-size:1.05rem}
+.sheet .sub{font-size:.85rem;color:var(--muted);margin:3px 0 14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.chips button{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 13px;font-weight:600;min-width:52px}
+.chips button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.sheet label.fld{display:block;font-size:.8rem;color:var(--muted);margin-bottom:16px}
+.sheet label.fld input{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);margin-top:5px}
+.acts{display:flex;gap:8px}
+.acts button{flex:1;border-radius:11px;padding:12px;border:1px solid var(--line);font-weight:600}
+.acts .primary{border-color:var(--accent)}
+.acts .del{color:#c0392b}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + var(--safe));z-index:60;
+  background:#15181d;color:#fff;border-radius:11px;padding:10px 16px;font-size:.87rem;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+@media (prefers-color-scheme: dark){.toast{background:#e9ebef;color:#15181d}}

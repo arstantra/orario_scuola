@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cifra dati — Orario T. Tasso</title>
+<style>
+  :root{--ink:#15181d;--muted:#6b7280;--line:#e4e7ec;--accent:#1d4ed8;--bg:#f4f5f7;--card:#fff}
+  @media(prefers-color-scheme:dark){:root{--ink:#e9ebef;--muted:#9aa1ad;--line:#272b33;--accent:#6f9bff;--bg:#0f1115;--card:#171a20}}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px}
+  main{max-width:620px;margin:0 auto}
+  h1{font-size:1.35rem;margin:0 0 6px} p.sub{color:var(--muted);margin:0 0 22px;font-size:.92rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+  h2{font-size:1rem;margin:0 0 12px}
+  label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:14px}
+  input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+        background:var(--bg);color:var(--ink);margin-top:5px;font:inherit}
+  button{background:var(--accent);color:#fff;border:0;border-radius:11px;padding:13px 18px;font:inherit;font-weight:600;cursor:pointer;width:100%}
+  button.sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .msg{margin-top:12px;font-size:.9rem}.ok{color:#15803d}.ko{color:#c0392b}
+  ol{padding-left:20px;color:var(--muted);font-size:.9rem;margin:0}
+  li{margin-bottom:6px}
+  code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:.85em}
+</style>
+</head>
+<body>
+<main>
+  <h1>Cifra i dati dell'orario</h1>
+  <p class="sub">Strumento locale: nulla viene inviato in rete. Genera <code>data-enc.js</code>, l'unico file dati da mettere su GitHub.</p>
+
+  <div class="card">
+    <h2>1 · Crea data-enc.js</h2>
+    <label>File JSON in chiaro (<code>dati-originali.json</code> o un backup esportato dall'app)
+      <input type="file" id="f" accept=".json,application/json"></label>
+    <label>Passphrase<input type="password" id="p1" autocomplete="new-password"></label>
+    <label>Ripeti passphrase<input type="password" id="p2" autocomplete="new-password"></label>
+    <button id="go">Cifra e scarica data-enc.js</button>
+    <div class="msg" id="m1"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Verifica un data-enc.js</h2>
+    <label>File cifrato<input type="file" id="f2" accept=".js"></label>
+    <label>Passphrase<input type="password" id="p3" autocomplete="off"></label>
+    <button class="sec" id="go2">Prova ad aprire</button>
+    <div class="msg" id="m2"></div>
+  </div>
+
+  <div class="card">
+    <h2>Promemoria</h2>
+    <ol>
+      <li>Metti <code>data-enc.js</code> nella cartella <code>app/</code>, accanto a <code>index.html</code>.</li>
+      <li><b>Non</b> committare <code>dati-originali.json</code> né i backup: sono già in <code>.gitignore</code>.</li>
+      <li>La passphrase non è recuperabile: se la perdi, rigeneri il file da capo dal JSON in chiaro.</li>
+    </ol>
+  </div>
+</main>
+
+<script>
+const ITER = 310000;
+const enc = new TextEncoder(), dec = new TextDecoder();
+const b64e = b => { const a = new Uint8Array(b); let s = ''; for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s); };
+const b64d = s => { const t = atob(s), a = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) a[i] = t.charCodeAt(i); return a; };
+async function key(pass, salt) {
+  const km = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: ITER, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+function say(id, txt, ok) { const e = document.getElementById(id); e.textContent = txt; e.className = 'msg ' + (ok ? 'ok' : 'ko'); }
+const read = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(f); });
+
+document.getElementById('go').onclick = async () => {
+  const f = document.getElementById('f').files[0];
+  const p1 = document.getElementById('p1').value, p2 = document.getElementById('p2').value;
+  if (!f) return say('m1', 'Scegli il file JSON.');
+  if (p1.length < 6) return say('m1', 'Passphrase troppo corta (almeno 6 caratteri).');
+  if (p1 !== p2) return say('m1', 'Le due passphrase non coincidono.');
+  try {
+    const obj = JSON.parse(await read(f));
+    if (!obj.docenti) return say('m1', 'Il JSON non contiene "docenti".');
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const k = await key(p1, salt);
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(obj)));
+    const out = { v: 1, kdf: 'PBKDF2-SHA256', iter: ITER, salt: b64e(salt), iv: b64e(iv), ct: b64e(ct) };
+    const blob = new Blob(['window.ORARIO_ENC = ' + JSON.stringify(out) + ';\n'], { type: 'application/javascript' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'data-enc.js';
+    document.body.appendChild(a); a.click(); a.remove();
+    say('m1', 'Fatto: ' + obj.docenti.length + ' docenti cifrati. Sposta data-enc.js nella cartella app/.', true);
+  } catch (e) { say('m1', 'Errore: ' + e.message); }
+};
+
+document.getElementById('go2').onclick = async () => {
+  const f = document.getElementById('f2').files[0], p = document.getElementById('p3').value;
+  if (!f) return say('m2', 'Scegli il file data-enc.js.');
+  try {
+    const txt = await read(f);
+    const box = JSON.parse(txt.replace(/^[^{]*/, '').replace(/;\s*$/, ''));
+    const k = await key(p, b64d(box.salt));
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(box.iv) }, k, b64d(box.ct));
+    const obj = JSON.parse(dec.decode(pt));
+    say('m2', 'Passphrase corretta: ' + obj.docenti.length + ' docenti, anno ' + (obj.meta ? obj.meta.anno : '?') + '.', true);
+  } catch (e) { say('m2', 'Non si apre: passphrase errata o file danneggiato.'); }
+};
+</script>
+</body>
+</html>
