@@ -87,7 +87,8 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
       "cattedra": "SOSTEGNO 1D (6) + 1C (6) + 2B (6)",
       "materia": "SOSTEGNO",
       "ruolo": "sostegno",
-      "celle": { "LUN": ["","2B","1D","2B","",""], "MAR": [...], "...": [...] } }
+      "celle": { "LUN": ["","2B","1D","2B","",""], "MAR": [...], "...": [...] },
+      "sost":  { "MAR|3": 1 } }
   ]
 }
 ```
@@ -95,18 +96,28 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
 - `celle[giorno]` è **sempre** un array di 6 stringhe (`normalizza()` lo garantisce).
 - Una cella è una **classe** se corrisponde a `/^[123][ABCDEF]$/`; altrimenti è testo libero
   (`"Boiardo"`, `"Potenziamento"`, `"Ufficio"`, `"Laboratorio"`, `"X"`, una nota…) o vuota.
-- `ruolo` ∈ `curricolare` | `l2` | `sostegno` | `educatrice`, derivato da `materia` al momento
-  della generazione del JSON.
+- `ruolo` ∈ `curricolare` | `l2` | `sostegno` | `educatore`. Si deriva da `materia`
+  (`ruoloDaMateria()`) ma è un campo proprio, modificabile dall'app. Il vecchio valore
+  `educatrice` viene convertito in `educatore` da `normalizza()`.
+- `sost` è la mappa delle **sostituzioni**: chiave `"GIORNO|ORA"` (ora 0-based), valore `1`.
+  Segna le ore in cui quel docente è **da solo** in classe. `normalizza()` la crea vuota se manca,
+  quindi i dati e i backup precedenti restano importabili.
 - `io` è l'`id` del docente mostrato in home (cambiabile da Impostazioni).
 - **Le compresenze non sono memorizzate:** `compresenze(classe, giorno, ora)` in `app.js` scorre
   tutti i docenti a ogni render. È il punto chiave del progetto — così restano corrette dopo
   qualunque modifica alle celle.
+- Di conseguenza **aggiungere un collega a un'ora = scrivere quella classe nella sua griglia**.
+  La regola della scuola è: l'orario curricolare guida, sostegno ed educatori si agganciano.
+  La materia non si scrive mai sull'ora: arriva sempre dall'anagrafica del docente presente.
+  Se in un'ora la materia cambia, si cambia il collega che occupa quell'ora.
 
 ## 6. Come è organizzato `app.js`
 
 Sezioni, nell'ordine: utilità → crypto → stato → avvio/sblocco → query sui dati → render
-(`viewHome`, `viewColleghi`, `viewScheda`, `viewImpostazioni`) → modifica celle + modal →
-azioni impostazioni → navigazione → service worker.
+(`viewHome`, `viewColleghi`, `viewScheda`, `viewImpostazioni`) → modifica ora
+(`editCella`, `pickCollega`) → anagrafica docenti (`editDocente`, `eliminaDocente`) →
+CSV colleghi (`csvDocenti`, `leggiCSV`, `importaCSV`) → modali → azioni impostazioni →
+navigazione → service worker.
 
 - Stato globale: `KEY` (CryptoKey), `ORIGINALE` (dati da `data-enc.js`), `DATA` (dati correnti),
   più `tab`, `giorno`, `schedaId`, `filtro`.
@@ -114,6 +125,11 @@ azioni impostazioni → navigazione → service worker.
 - Ogni cella modificabile ha `data-cell="GIORNO|ORA|IDDOCENTE"`; `bindCelle()` la collega a
   `editCella()`.
 - `salva()` cifra `DATA` e scrive in `localStorage` a ogni modifica.
+- **Il foglio "modifica ora" applica subito**, senza pulsante Salva: ogni tocco scrive in `DATA`,
+  chiama `salva()` e `render()`, e ridisegna solo il proprio contenuto (`aggiorna()`). La classe
+  scelta resta selezionata mentre si aggiungono colleghi o si segna la sostituzione.
+- I modali si impilano (`openModal` aggiunge, `chiudiTop()` toglie l'ultimo, `closeModal()` tutti):
+  serve per il selettore colleghi aperto sopra il foglio dell'ora.
 - "Ripristina orario originale" = `DATA = clone(ORIGINALE)`, quindi `ORIGINALE` non va mai mutato.
 
 ## 7. Operazioni ricorrenti
@@ -135,6 +151,14 @@ perché il file della scuola può cambiare forma:
   mappate a etichetta leggibile (Boiardo, Baura, Dante, Ponte, De Pisis, ITI)
 - `P` ripetuta = Potenziamento, `UFF` = Ufficio, `Lab`/`lab` = Laboratorio, `X` = **ignoto**
 - il JSON in chiaro va nella cartella superiore, **mai** nel repo; poi `cifra.html`
+
+**Caricare o correggere l'elenco dei colleghi**
+Da *Impostazioni → Colleghi*: si aggiunge un docente a mano, oppure si importa un CSV
+(`nome · materia · ruolo · cattedra`, separatore `;` o `,`, intestazione facoltativa).
+L'import **aggiorna chi c'è già** — confronto sul nome normalizzato — **aggiunge i nuovi e non
+rimuove nessuno**; i nuovi nascono con la griglia vuota. `ruolo` vuoto viene dedotto dalla materia.
+Da *Esporta elenco in CSV* si ottiene il file già nel formato giusto, da usare come modello.
+Il singolo docente si modifica o si elimina dalla sua scheda in *Colleghi*.
 
 **Aggiungere un campo ai dati**
 Aggiornare lo script di generazione, `normalizza()` in `app.js` (per i dati già salvati sui
@@ -168,4 +192,5 @@ sincronizzazione litiga con `.git`, mettere OneDrive in pausa durante i push.
 ## 10. Idee non implementate
 
 Vista per classe; evidenza dell'ora corrente in home; note per cella (oltre al testo libero);
-promemoria delle supplenze; stampa/PDF della settimana; confronto fra due versioni dell'orario.
+stampa/PDF della settimana; confronto fra due versioni dell'orario; elenco delle sole ore
+segnate come sostituzione.

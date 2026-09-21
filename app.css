@@ -148,3 +148,30 @@ button{background:none;border:0;cursor:pointer}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + var(--safe));z-index:60;
   background:#15181d;color:#fff;border-radius:11px;padding:10px 16px;font-size:.87rem;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 @media (prefers-color-scheme: dark){.toast{background:#e9ebef;color:#15181d}}
+
+/* ---------- ora in sostituzione ---------- */
+.sost{color:var(--warn);font-weight:700;text-transform:uppercase;font-size:.78rem;letter-spacing:.5px}
+.ora.is-sost{border-color:var(--warn)}
+.cell.sos{box-shadow:inset 0 0 0 2px var(--warn)}
+
+/* ---------- sheet: compresenze ---------- */
+.sec2{font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:2px 0 7px}
+.who{list-style:none;margin:0 0 10px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.who li{display:flex;align-items:center;gap:9px;padding:9px 6px 9px 12px;background:var(--bg)}
+.who li+li{border-top:1px solid var(--line)}
+.who li.empty{color:var(--muted);font-size:.86rem;justify-content:center;padding:12px}
+.who .nm{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .x{font-size:1.5rem;line-height:1;color:var(--muted);width:34px;height:34px;flex:0 0 34px}
+.addbtn{width:100%;border:1px dashed var(--line);border-radius:12px;padding:12px;
+  color:var(--accent);font-weight:600;margin-bottom:14px}
+.list+.addbtn{margin-top:10px}
+.sw{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);
+  border-radius:12px;background:var(--bg);margin-bottom:14px;font-size:.92rem}
+.sw input{width:20px;height:20px;flex:0 0 20px}
+.busy{font-size:.7rem;color:var(--warn);white-space:nowrap}
+.chips button.alt{font-weight:500;color:var(--muted)}
+.chips button.alt.on{color:#fff}
+.sheet .search{margin:0 0 10px}
+.sheet .list{margin-bottom:12px;max-height:44dvh;overflow:auto}
+.sheet select{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--bg);margin-top:5px}

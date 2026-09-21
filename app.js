@@ -1,4 +1,4 @@
-/* Orario T. Tasso — app.js
+/* Orario T. Tasso — app.js  (v1.1)
    Vanilla JS, nessuna dipendenza. Dati cifrati AES-GCM, chiave da passphrase (PBKDF2).
    I dati modificati restano in localStorage, cifrati con la stessa chiave. */
 (function () {
@@ -10,11 +10,15 @@ const enc = new TextEncoder(), dec = new TextDecoder();
 const LS_DATA = 'orario.tasso.data', LS_KEY = 'orario.tasso.key';
 const CLASSE = /^[123][ABCDEF]$/;
 const DAYNAME = { LUN: 'Lunedì', MAR: 'Martedì', MER: 'Mercoledì', GIO: 'Giovedì', VEN: 'Venerdì' };
+const RUOLI = { curricolare: 'Curricolare', l2: 'Italiano L2', sostegno: 'Sostegno', educatore: 'Educatore' };
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function b64e(buf) { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
 function b64d(str) { const s = atob(str), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
+function norm(s) { return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim(); }
+function slug(s) { return norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'docente'; }
+const K = (g, h) => g + '|' + h;
 
 let toastT;
 function toast(msg) {
@@ -91,13 +95,30 @@ async function apri() {
   render();
 }
 
+function ruoloDaMateria(m) {
+  const x = norm(m).toUpperCase();
+  if (!x) return 'curricolare';
+  if (x.indexOf('SOSTEGNO') >= 0) return 'sostegno';
+  if (x.indexOf('EDUCAT') >= 0) return 'educatore';
+  if (x.indexOf('L2') >= 0) return 'l2';
+  return 'curricolare';
+}
+
 function normalizza(d) {
   d.giorni = d.giorni || ['LUN', 'MAR', 'MER', 'GIO', 'VEN'];
   d.orari = d.orari || ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00'];
-  d.docenti.forEach(t => d.giorni.forEach(g => {
-    if (!Array.isArray(t.celle[g])) t.celle[g] = ['', '', '', '', '', ''];
-    while (t.celle[g].length < 6) t.celle[g].push('');
-  }));
+  d.docenti = d.docenti || [];
+  d.docenti.forEach(t => {
+    if (t.ruolo === 'educatrice') t.ruolo = 'educatore';
+    if (!RUOLI[t.ruolo]) t.ruolo = ruoloDaMateria(t.materia);
+    if (!t.sost || typeof t.sost !== 'object') t.sost = {};   // sostituzioni: { "LUN|2": 1 }
+    if (!t.celle || typeof t.celle !== 'object') t.celle = {};
+    d.giorni.forEach(g => {
+      if (!Array.isArray(t.celle[g])) t.celle[g] = ['', '', '', '', '', ''];
+      while (t.celle[g].length < 6) t.celle[g].push('');
+    });
+  });
+  if (!d.docenti.some(t => t.id === d.io) && d.docenti.length) d.io = d.docenti[0].id;
 }
 
 function oggiOpp() {
@@ -113,6 +134,11 @@ async function salva() {
 /* ============ query sui dati ============ */
 const io = () => DATA.docenti.find(t => t.id === DATA.io) || DATA.docenti[0];
 const byId = id => DATA.docenti.find(t => t.id === id);
+function idUnico(base) {
+  let id = base, n = 2;
+  while (DATA.docenti.some(t => t.id === id)) id = base + '-' + (n++);
+  return id;
+}
 function classi() {
   const s = new Set();
   DATA.docenti.forEach(t => DATA.giorni.forEach(g => t.celle[g].forEach(v => { if (CLASSE.test(v)) s.add(v); })));
@@ -125,7 +151,7 @@ function compresenze(classe, g, h, esclusoId) {
     if (t.id === esclusoId) return;
     if (t.celle[g][h] !== classe) return;
     if (t.ruolo === 'sostegno') out.sos.push(t);
-    else if (t.ruolo === 'educatrice') out.edu.push(t);
+    else if (t.ruolo === 'educatore') out.edu.push(t);
     else if (t.ruolo === 'l2') out.l2.push(t);
     else out.cur.push(t);
   });
@@ -136,11 +162,18 @@ const ETICHETTE = {
   'LETTERE': 'Lettere', 'MATEMATICA': 'Matematica', 'ITALIANO L2': 'Italiano L2',
   'ED FISICA': 'Ed. fisica', 'TECNOLOGIA': 'Tecnologia', 'ARTE': 'Arte', 'MUSICA': 'Musica',
   'INGLESE': 'Inglese', 'SPAGNOLO': 'Spagnolo', 'FRANCESE': 'Francese', 'TEDESCO': 'Tedesco',
-  'RELIGIONE': 'Religione', 'SOSTEGNO': 'Sostegno', 'EDUCATRICE': 'Educatrice'
+  'RELIGIONE': 'Religione', 'SOSTEGNO': 'Sostegno', 'EDUCATRICE': 'Educatrice', 'EDUCATORE': 'Educatore'
 };
 function materiaBreve(t) {
   const m = (t.materia || '').trim().toUpperCase();
-  return ETICHETTE[m] || (m ? m.charAt(0) + m.slice(1).toLowerCase() : '');
+  if (ETICHETTE[m]) return ETICHETTE[m];
+  if (m) return m.charAt(0) + m.slice(1).toLowerCase();
+  return RUOLI[t.ruolo] || '';
+}
+function materie() {
+  const s = new Set();
+  DATA.docenti.forEach(t => { if (t.materia) s.add(t.materia.trim()); });
+  return [...s].sort();
 }
 
 /* ============ render ============ */
@@ -153,17 +186,19 @@ function render() {
     if (schedaId) { $('#title').textContent = 'Scheda'; viewScheda(); }
     else { $('#title').textContent = 'Colleghi'; viewColleghi(); }
   } else { $('#title').textContent = 'Impostazioni'; viewImpostazioni(); }
-  window.scrollTo(0, 0);
+  if (!$('#modalRoot').firstElementChild) window.scrollTo(0, 0);
 }
 
 function viewHome() {
   const me = io(), oggi = oggiOpp();
+  if (!me) { $('#view').innerHTML = '<p class="hint">Nessun docente in elenco.</p>'; return; }
   let h = '<div class="days">' + DATA.giorni.map(g =>
     `<button data-g="${g}" class="${g === giorno ? 'on' : ''} ${g === oggi ? 'today' : ''}">${g}</button>`).join('') + '</div>';
 
   h += '<ul class="ore">';
   for (let i = 0; i < 6; i++) {
     const v = me.celle[giorno][i], ora = DATA.orari[i] || '';
+    const solo = !!me.sost[K(giorno, i)];
     if (!v) {
       h += `<li><button class="ora vuota" data-cell="${giorno}|${i}|${me.id}">
         <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
@@ -178,22 +213,29 @@ function viewHome() {
     }
     const c = compresenze(v, giorno, i, me.id);
     const titolari = c.cur.concat(c.l2);
-    const principale = titolari.length
-      ? titolari.map(t => `${esc(cognome(t))}`).join(' + ')
-      : '<span class="nocur">nessun curricolare</span>';
-    const mat = titolari.length ? titolari.map(t => esc(materiaBreve(t))).join(' + ') : '';
-    const altri = c.sos.concat(c.edu).map(t => esc(cognome(t)) + (t.ruolo === 'educatrice' ? ' (educ.)' : ' (sost.)'));
-    h += `<li><button class="ora" data-cell="${giorno}|${i}|${me.id}">
+    const altri = c.sos.concat(c.edu).map(t => esc(cognome(t)) + (t.ruolo === 'educatore' ? ' (educ.)' : ' (sost.)'));
+    let principale, mat;
+    if (solo) {
+      principale = '<span class="sost">sostituzione</span>';
+      mat = 'da solo';
+    } else if (titolari.length) {
+      principale = titolari.map(t => esc(cognome(t))).join(' + ');
+      mat = titolari.map(t => esc(materiaBreve(t))).join(' + ');
+    } else {
+      principale = '<span class="nocur">nessun curricolare</span>';
+      mat = '';
+    }
+    h += `<li><button class="ora${solo ? ' is-sost' : ''}" data-cell="${giorno}|${i}|${me.id}">
       <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
       <span class="ora-body">
         <span class="ora-top"><span class="cls">${esc(v)}</span><span class="cur">${principale}</span></span>
-        <span class="ora-sub">${mat}${altri.length ? ' · anche ' + altri.join(', ') : ''}</span>
+        <span class="ora-sub">${mat}${altri.length ? (mat ? ' · ' : '') + 'anche ' + altri.join(', ') : ''}</span>
       </span></button></li>`;
   }
   h += '</ul>';
 
   const n = DATA.giorni.reduce((a, g) => a + me.celle[g].filter(v => v).length, 0);
-  h += `<p class="hint">${esc(me.nome)} — ${n} ore in griglia · ${esc(me.cattedra)}<br>Tocca una cella per modificarla.</p>`;
+  h += `<p class="hint">${esc(me.nome)} — ${n} ore in griglia · ${esc(me.cattedra || '')}<br>Tocca una cella per modificarla.</p>`;
   $('#view').innerHTML = h;
   document.querySelectorAll('.days button').forEach(b => b.onclick = () => { giorno = b.dataset.g; render(); });
   bindCelle();
@@ -204,24 +246,27 @@ function viewColleghi() {
   const lista = DATA.docenti.filter(t => {
     if (!f) return true;
     const cls = DATA.giorni.map(g => t.celle[g].join(' ')).join(' ');
-    return (t.nome + ' ' + t.cattedra + ' ' + cls).toLowerCase().includes(f);
+    return (t.nome + ' ' + (t.cattedra || '') + ' ' + (t.materia || '') + ' ' + cls).toLowerCase().includes(f);
   });
   let h = `<input class="search" id="q" type="search" placeholder="Cerca docente, materia o classe" value="${esc(filtro)}">`;
   h += '<ul class="list">' + lista.map(t => `<li><button data-id="${t.id}">
       <span class="nm">${esc(t.nome)}</span>
       <span class="tag ${t.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(t))}</span></button></li>`).join('') + '</ul>';
   if (!lista.length) h += '<p class="hint">Nessun risultato.</p>';
+  h += '<button class="addbtn" id="nuovoDoc">+ Aggiungi docente</button>';
   $('#view').innerHTML = h;
   const q = $('#q');
   q.oninput = () => { filtro = q.value; const p = q.selectionStart; viewColleghi(); const n = $('#q'); n.focus(); n.setSelectionRange(p, p); };
   document.querySelectorAll('.list button').forEach(b => b.onclick = () => { schedaId = b.dataset.id; render(); });
+  $('#nuovoDoc').onclick = () => editDocente(null);
 }
 
 function viewScheda() {
   const t = byId(schedaId); if (!t) { schedaId = null; return render(); }
   const me = io();
   let conMe = 0;
-  let h = `<div class="card"><h2>${esc(t.nome)}</h2><div class="sub">${esc(t.cattedra)}</div></div>`;
+  let h = `<div class="card"><h2>${esc(t.nome)}</h2>
+    <div class="sub">${esc(materiaBreve(t))}${t.cattedra ? ' · ' + esc(t.cattedra) : ''}</div></div>`;
   h += '<div class="card"><table class="grid"><thead><tr><th></th>' +
     DATA.giorni.map(g => `<th>${g}</th>`).join('') + '</tr></thead><tbody>';
   for (let i = 0; i < 6; i++) {
@@ -230,7 +275,7 @@ function viewScheda() {
       const v = t.celle[g][i];
       const insieme = v && CLASSE.test(v) && me.id !== t.id && me.celle[g][i] === v;
       if (insieme) conMe++;
-      const cls = 'cell' + (v ? ' has' : '') + (insieme ? ' me' : '');
+      const cls = 'cell' + (v ? ' has' : '') + (insieme ? ' me' : '') + (t.sost[K(g, i)] ? ' sos' : '');
       const inner = !v ? '' : (CLASSE.test(v) ? `<b>${esc(v)}</b>` : `<small>${esc(v)}</small>`);
       h += `<td><button class="${cls}" data-cell="${g}|${i}|${t.id}" title="${esc(v)}">${inner}</button></td>`;
     }
@@ -239,8 +284,13 @@ function viewScheda() {
   h += '</tbody></table></div>';
   const n = DATA.giorni.reduce((a, g) => a + t.celle[g].filter(v => v).length, 0);
   h += `<p class="hint">${n} ore in griglia${t.id !== me.id ? ` · ${conMe} ore in classe con te` : ''}<br>Tocca una cella per modificarla.</p>`;
+  h += `<div class="rows" style="margin-top:16px">
+    <button class="row" id="modDoc"><span class="lbl">Modifica docente</span><span class="val">›</span></button>
+    <button class="row danger" id="delDoc"><span class="lbl">Elimina docente</span><span class="val">›</span></button></div>`;
   $('#view').innerHTML = h;
   bindCelle();
+  $('#modDoc').onclick = () => editDocente(t.id);
+  $('#delDoc').onclick = () => eliminaDocente(t.id);
 }
 
 function viewImpostazioni() {
@@ -250,6 +300,12 @@ function viewImpostazioni() {
 
   h += '<div class="sec">Orario delle lezioni</div><div class="rows"><div class="times">' +
     DATA.orari.map((v, i) => `<label>${i + 1}ª <input type="time" data-ora="${i}" value="${esc(v)}"></label>`).join('') + '</div></div>';
+
+  h += '<div class="sec">Colleghi</div><div class="rows">' +
+    '<button class="row" data-act="nuovo"><span class="lbl">Aggiungi docente</span><span class="val">›</span></button>' +
+    '<button class="row" data-act="csvin"><span class="lbl">Importa elenco da CSV</span><span class="val">›</span></button>' +
+    '<button class="row" data-act="csvout"><span class="lbl">Esporta elenco in CSV</span><span class="val">›</span></button>' +
+    '</div><p class="hint">Il CSV aggiorna chi c\'è già e aggiunge i nuovi: nessuno viene rimosso.<br>Colonne: nome · materia · ruolo · cattedra.</p>';
 
   h += '<div class="sec">Dati</div><div class="rows">' +
     '<button class="row" data-act="export"><span class="lbl">Esporta backup JSON</span><span class="val">›</span></button>' +
@@ -267,7 +323,7 @@ function viewImpostazioni() {
     <div class="row"><span class="lbl">Scuola</span><span class="val">${esc(m.scuola || '')}</span></div>
     <div class="row"><span class="lbl">Anno</span><span class="val">${esc(m.anno || '')}</span></div>
     <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(m.generato || '')}</span></div>
-    <div class="row"><span class="lbl">Versione app</span><span class="val">1.0</span></div></div>`;
+    <div class="row"><span class="lbl">Versione app</span><span class="val">1.1</span></div></div>`;
   h += '<p class="hint">Orario provvisorio: le modifiche fatte qui restano su questo dispositivo.</p>';
   $('#view').innerHTML = h;
 
@@ -282,7 +338,7 @@ function viewImpostazioni() {
   document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => azione(b.dataset.act));
 }
 
-/* ============ modifica celle ============ */
+/* ============ modifica ora ============ */
 function bindCelle() {
   document.querySelectorAll('[data-cell]').forEach(b => b.onclick = () => {
     const [g, h, id] = b.dataset.cell.split('|');
@@ -291,35 +347,261 @@ function bindCelle() {
 }
 
 function editCella(g, h, id) {
-  const t = byId(id), v = t.celle[g][h];
-  const cl = classi();
-  const html = `<h3>${DAYNAME[g] || g} · ${h + 1}ª ora</h3>
-    <p class="sub">${esc(t.nome)}${DATA.orari[h] ? ' · ' + esc(DATA.orari[h]) : ''}</p>
-    <div class="chips">${cl.map(c => `<button data-c="${c}" class="${c === v ? 'on' : ''}">${c}</button>`).join('')}</div>
-    <label class="fld">Oppure testo libero (altro plesso, potenziamento, nota…)
-      <input id="free" value="${CLASSE.test(v) ? '' : esc(v)}" placeholder="es. Boiardo, Potenziamento, Riunione"></label>
-    <div class="acts">
+  const t = byId(id); if (!t) return;
+  const k = K(g, h);
+  let libero = !!(t.celle[g][h] && !CLASSE.test(t.celle[g][h]));
+
+  function disegna() {
+    const v = t.celle[g][h];
+    const isCl = CLASSE.test(v);
+    const cl = classi();
+    if (isCl && cl.indexOf(v) < 0) cl.push(v);
+
+    let x = `<h3>${DAYNAME[g] || g} · ${h + 1}ª ora</h3>
+      <p class="sub">${esc(t.nome)}${DATA.orari[h] ? ' · ' + esc(DATA.orari[h]) : ''}</p>
+      <div class="chips">` +
+      cl.map(c => `<button data-c="${c}" class="${c === v && !libero ? 'on' : ''}">${c}</button>`).join('') +
+      `<button data-a="altro" class="alt${libero ? ' on' : ''}">Altro…</button></div>`;
+
+    if (libero) {
+      x += `<label class="fld">Testo libero (altro plesso, potenziamento, nota…)
+        <input id="free" value="${esc(isCl ? '' : v)}" placeholder="es. Boiardo, Potenziamento, Riunione"></label>`;
+    }
+
+    if (isCl && !libero) {
+      const c = compresenze(v, g, h, t.id);
+      const tutti = c.cur.concat(c.l2, c.sos, c.edu);
+      x += `<div class="sec2">In classe, quest'ora</div><ul class="who">`;
+      if (!tutti.length) x += `<li class="empty">Nessun altro docente in ${esc(v)}</li>`;
+      tutti.forEach(o => {
+        x += `<li><span class="nm">${esc(o.nome)}</span>
+          <span class="tag ${o.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(o))}</span>
+          <button class="x" data-del="${o.id}" aria-label="Togli">×</button></li>`;
+      });
+      x += `</ul><button class="addbtn" data-a="add">+ Aggiungi collega</button>`;
+      x += `<label class="sw"><input type="checkbox" id="solo" ${t.sost[k] ? 'checked' : ''}>
+        <span>Sostituzione — sono da solo</span></label>`;
+    }
+
+    x += `<div class="acts">
       <button data-a="clear" class="del">Svuota</button>
-      <button data-a="cancel">Annulla</button>
-      <button data-a="save" class="primary">Salva</button>
-    </div>`;
+      <button data-a="done" class="primary">Fatto</button></div>`;
+    return x;
+  }
+
+  function bind(sc) {
+    sc.querySelectorAll('.chips button[data-c]').forEach(b => b.onclick = () => {
+      t.celle[g][h] = b.dataset.c; libero = false; salva(); render(); aggiorna();
+    });
+    const alt = sc.querySelector('[data-a="altro"]');
+    if (alt) alt.onclick = () => {
+      if (CLASSE.test(t.celle[g][h])) { t.celle[g][h] = ''; delete t.sost[k]; salva(); render(); }
+      libero = true; aggiorna();
+      const f = $('#modalRoot #free'); if (f) f.focus();
+    };
+    const free = sc.querySelector('#free');
+    if (free) {
+      free.oninput = () => { t.celle[g][h] = free.value; salva(); render(); };
+      free.onblur = () => { t.celle[g][h] = free.value.trim(); salva(); render(); };
+    }
+    sc.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+      const o = byId(b.dataset.del); if (!o) return;
+      o.celle[g][h] = ''; delete o.sost[k];
+      salva(); render(); aggiorna(); toast(o.nome + ' tolto da quest\'ora');
+    });
+    const add = sc.querySelector('[data-a="add"]');
+    if (add) add.onclick = () => pickCollega(g, h, t, aggiorna);
+    const sw = sc.querySelector('#solo');
+    if (sw) sw.onchange = () => {
+      if (sw.checked) t.sost[k] = 1; else delete t.sost[k];
+      salva(); render();
+    };
+    sc.querySelector('[data-a="clear"]').onclick = () => {
+      t.celle[g][h] = ''; delete t.sost[k]; libero = false;
+      salva(); chiudiTop(); render();
+    };
+    sc.querySelector('[data-a="done"]').onclick = () => { chiudiTop(); render(); };
+  }
+
+  function aggiorna() {
+    const sc = $('#modalRoot .mask:last-child .sheet');
+    if (!sc) return;
+    sc.innerHTML = disegna();
+    bind(sc);
+  }
+
+  openModal(disegna(), root => bind(root.querySelector('.sheet')));
+}
+
+/** elenco per aggiungere un collega alla stessa classe/ora */
+function pickCollega(g, h, t, done) {
+  const classe = t.celle[g][h];
+  let f = '';
+
+  function disegna() {
+    const q = norm(f);
+    const lista = DATA.docenti
+      .filter(o => o.id !== t.id && o.celle[g][h] !== classe)
+      .filter(o => !q || norm(o.nome + ' ' + (o.materia || '')).includes(q));
+    let x = `<h3>Aggiungi collega</h3>
+      <p class="sub">${DAYNAME[g] || g} · ${h + 1}ª ora · ${esc(classe)}</p>
+      <input class="search" id="qc" type="search" placeholder="Cerca nome o materia" value="${esc(f)}">
+      <ul class="list">` +
+      lista.map(o => `<li><button data-id="${o.id}">
+        <span class="nm">${esc(o.nome)}</span>
+        ${o.celle[g][h] ? `<span class="busy">già in ${esc(o.celle[g][h])}</span>` : ''}
+        <span class="tag ${o.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(o))}</span></button></li>`).join('') +
+      '</ul>';
+    if (!lista.length) x += '<p class="hint">Nessun risultato.</p>';
+    x += '<div class="acts"><button data-a="chiudi">Chiudi</button></div>';
+    return x;
+  }
+
+  function bind(sc) {
+    const q = sc.querySelector('#qc');
+    q.oninput = () => {
+      f = q.value; const p = q.selectionStart;
+      sc.innerHTML = disegna(); bind(sc);
+      const n = sc.querySelector('#qc'); n.focus(); n.setSelectionRange(p, p);
+    };
+    sc.querySelectorAll('.list button').forEach(b => b.onclick = () => {
+      const o = byId(b.dataset.id); if (!o) return;
+      const prima = o.celle[g][h];
+      o.celle[g][h] = classe; delete o.sost[K(g, h)];
+      salva(); chiudiTop(); render(); if (done) done();
+      toast(o.nome + (prima ? ' spostato in ' : ' aggiunto in ') + classe);
+    });
+    sc.querySelector('[data-a="chiudi"]').onclick = chiudiTop;
+  }
+
+  openModal(disegna(), root => bind(root.querySelector('.sheet')));
+}
+
+/* ============ anagrafica docenti ============ */
+function editDocente(id) {
+  const nuovo = !id;
+  const t = nuovo ? { nome: '', materia: '', cattedra: '', ruolo: 'curricolare' } : byId(id);
+  if (!t) return;
+  const html = `<h3>${nuovo ? 'Nuovo docente' : 'Modifica docente'}</h3>
+    <label class="fld">Nome<input id="dn" value="${esc(t.nome)}" placeholder="Cognome Nome"></label>
+    <label class="fld">Materia<input id="dm" list="dmL" value="${esc(t.materia || '')}" placeholder="es. Matematica, Sostegno, Educatore"></label>
+    <datalist id="dmL">${materie().map(m => `<option value="${esc(m)}">`).join('')}</datalist>
+    <label class="fld">Ruolo<select id="dr">${Object.keys(RUOLI).map(r =>
+      `<option value="${r}" ${r === t.ruolo ? 'selected' : ''}>${RUOLI[r]}</option>`).join('')}</select></label>
+    <label class="fld">Cattedra<input id="dc" value="${esc(t.cattedra || '')}" placeholder="es. 1D (6) + 1C (6)"></label>
+    <div class="acts"><button data-a="cancel">Annulla</button><button data-a="save" class="primary">Salva</button></div>`;
   openModal(html, root => {
-    const set = val => { t.celle[g][h] = val; salva(); closeModal(); render(); };
-    root.querySelectorAll('.chips button').forEach(b => b.onclick = () => set(b.dataset.c));
-    root.querySelector('[data-a="clear"]').onclick = () => set('');
-    root.querySelector('[data-a="cancel"]').onclick = closeModal;
-    root.querySelector('[data-a="save"]').onclick = () => set(root.querySelector('#free').value.trim());
+    const dn = root.querySelector('#dn'), dm = root.querySelector('#dm'), dr = root.querySelector('#dr');
+    let tocco = !nuovo;
+    dr.onchange = () => { tocco = true; };
+    dm.oninput = () => { if (!tocco) dr.value = ruoloDaMateria(dm.value); };
+    root.querySelector('[data-a="cancel"]').onclick = chiudiTop;
+    root.querySelector('[data-a="save"]').onclick = () => {
+      const nome = dn.value.trim();
+      if (!nome) { dn.focus(); return toast('Serve il nome'); }
+      const campi = {
+        nome, materia: dm.value.trim(), ruolo: dr.value,
+        cattedra: root.querySelector('#dc').value.trim()
+      };
+      if (nuovo) {
+        const n = Object.assign({ id: idUnico(slug(nome)), celle: {}, sost: {} }, campi);
+        DATA.docenti.push(n);
+        schedaId = n.id; tab = 'colleghi';
+      } else Object.assign(t, campi);
+      normalizza(DATA); salva(); chiudiTop(); render();
+      toast(nuovo ? 'Docente aggiunto' : 'Docente aggiornato');
+    };
+    dn.focus();
   });
 }
 
+function eliminaDocente(id) {
+  const t = byId(id); if (!t) return;
+  openModal(`<h3>Eliminare ${esc(t.nome)}?</h3>
+    <p class="sub">Il docente e il suo orario vengono rimossi da questo dispositivo.</p>
+    <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary del">Elimina</button></div>`,
+    root => {
+      root.querySelector('[data-a="no"]').onclick = chiudiTop;
+      root.querySelector('[data-a="si"]').onclick = () => {
+        DATA.docenti = DATA.docenti.filter(d => d.id !== id);
+        if (schedaId === id) schedaId = null;
+        normalizza(DATA); salva(); chiudiTop(); render(); toast('Docente eliminato');
+      };
+    });
+}
+
+/* ============ CSV colleghi ============ */
+function csvDocenti() {
+  const q = c => /[;"\n\r]/.test(c) ? '"' + String(c).replace(/"/g, '""') + '"' : c;
+  const righe = [['nome', 'materia', 'ruolo', 'cattedra']];
+  DATA.docenti.forEach(t => righe.push([t.nome, t.materia || '', t.ruolo, t.cattedra || '']));
+  return righe.map(r => r.map(q).join(';')).join('\r\n');
+}
+
+function leggiCSV(txt) {
+  txt = String(txt).replace(/^﻿/, '');
+  const prima = txt.split(/\r?\n/)[0] || '';
+  const sep = (prima.split(';').length >= prima.split(',').length) ? ';' : ',';
+  const out = []; let riga = [], campo = '', q = false;
+  for (let i = 0; i < txt.length; i++) {
+    const ch = txt[i];
+    if (q) {
+      if (ch === '"') { if (txt[i + 1] === '"') { campo += '"'; i++; } else q = false; }
+      else campo += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === sep) { riga.push(campo); campo = ''; }
+    else if (ch === '\n') { riga.push(campo); out.push(riga); riga = []; campo = ''; }
+    else if (ch !== '\r') campo += ch;
+  }
+  if (campo !== '' || riga.length) { riga.push(campo); out.push(riga); }
+  return out.filter(r => r.some(c => c.trim()));
+}
+
+function importaCSV(txt) {
+  const rows = leggiCSV(txt);
+  if (!rows.length) return toast('CSV vuoto');
+  let idx = { nome: 0, materia: 1, ruolo: 2, cattedra: 3 };
+  const head = rows[0].map(c => norm(c));
+  if (head.indexOf('nome') >= 0) {
+    idx = { nome: head.indexOf('nome'), materia: head.indexOf('materia'), ruolo: head.indexOf('ruolo'), cattedra: head.indexOf('cattedra') };
+    rows.shift();
+  }
+  const val = (r, i) => (i >= 0 && r[i] != null) ? String(r[i]).trim() : '';
+  let agg = 0, upd = 0;
+  rows.forEach(r => {
+    const nome = val(r, idx.nome); if (!nome) return;
+    const materia = val(r, idx.materia), cattedra = val(r, idx.cattedra);
+    let ruolo = norm(val(r, idx.ruolo)).replace('educatrice', 'educatore').replace('italiano l2', 'l2');
+    if (!RUOLI[ruolo]) ruolo = '';
+    const ex = DATA.docenti.find(t => norm(t.nome) === norm(nome));
+    if (ex) {
+      if (materia) ex.materia = materia;
+      if (cattedra) ex.cattedra = cattedra;
+      ex.ruolo = ruolo || ruoloDaMateria(ex.materia);
+      upd++;
+    } else {
+      DATA.docenti.push({
+        id: idUnico(slug(nome)), nome, materia, cattedra,
+        ruolo: ruolo || ruoloDaMateria(materia), celle: {}, sost: {}
+      });
+      agg++;
+    }
+  });
+  DATA.docenti.sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
+  normalizza(DATA); salva(); render();
+  toast(agg + ' aggiunti · ' + upd + ' aggiornati');
+}
+
+/* ============ modali ============ */
 function openModal(html, onMount) {
   const root = document.createElement('div');
   root.className = 'mask';
   root.innerHTML = `<div class="sheet">${html}</div>`;
-  root.addEventListener('click', e => { if (e.target === root) closeModal(); });
+  root.addEventListener('click', e => { if (e.target === root) { root.remove(); render(); } });
   $('#modalRoot').appendChild(root);
   if (onMount) onMount(root);
 }
+function chiudiTop() { const r = $('#modalRoot'); if (r.lastElementChild) r.lastElementChild.remove(); }
 function closeModal() { $('#modalRoot').innerHTML = ''; }
 
 /* ============ azioni impostazioni ============ */
@@ -330,28 +612,37 @@ function download(nome, testo, tipo) {
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
+function leggiFile(accept, cb) {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept;
+  inp.onchange = () => {
+    const f = inp.files[0]; if (!f) return;
+    const fr = new FileReader();
+    fr.onload = () => cb(fr.result);
+    fr.readAsText(f);
+  };
+  inp.click();
+}
 
 async function azione(a) {
+  if (a === 'nuovo') editDocente(null);
+  if (a === 'csvout') {
+    download('colleghi-' + new Date().toISOString().slice(0, 10) + '.csv', csvDocenti(), 'text/csv');
+    toast('CSV esportato');
+  }
+  if (a === 'csvin') leggiFile('.csv,text/csv,text/plain', txt => {
+    try { importaCSV(txt); } catch (e) { toast('CSV non valido'); }
+  });
   if (a === 'export') {
     download('orario-tasso-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(DATA, null, 1));
     toast('Backup esportato');
   }
-  if (a === 'import') {
-    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
-    inp.onchange = () => {
-      const f = inp.files[0]; if (!f) return;
-      const fr = new FileReader();
-      fr.onload = () => {
-        try {
-          const d = JSON.parse(fr.result);
-          if (!d.docenti) throw 0;
-          DATA = d; normalizza(DATA); salva(); render(); toast('Dati importati');
-        } catch (e) { toast('File non valido'); }
-      };
-      fr.readAsText(f);
-    };
-    inp.click();
-  }
+  if (a === 'import') leggiFile('.json,application/json', txt => {
+    try {
+      const d = JSON.parse(txt);
+      if (!d.docenti) throw 0;
+      DATA = d; normalizza(DATA); salva(); render(); toast('Dati importati');
+    } catch (e) { toast('File non valido'); }
+  });
   if (a === 'enc') {
     const box = window.ORARIO_ENC;
     const p = await encryptObj(DATA, KEY);
@@ -364,7 +655,7 @@ async function azione(a) {
       <p class="sub">Tutte le modifiche salvate su questo dispositivo verranno perse.</p>
       <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary del">Ripristina</button></div>`,
       root => {
-        root.querySelector('[data-a="no"]').onclick = closeModal;
+        root.querySelector('[data-a="no"]').onclick = chiudiTop;
         root.querySelector('[data-a="si"]').onclick = () => {
           DATA = clone(ORIGINALE); normalizza(DATA); salva(); closeModal(); giorno = oggiOpp(); render(); toast('Orario ripristinato');
         };
@@ -372,6 +663,7 @@ async function azione(a) {
   }
   if (a === 'lock') {
     localStorage.removeItem(LS_KEY); KEY = null; DATA = null;
+    closeModal();
     $('#app').hidden = true; $('#lock').hidden = false; $('#pass').value = ''; $('#pass').focus();
   }
 }
