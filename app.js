@@ -1,4 +1,4 @@
-/* Orario T. Tasso — app.js  (v1.1)
+/* Orario T. Tasso — app.js  (v1.2)
    Vanilla JS, nessuna dipendenza. Dati cifrati AES-GCM, chiave da passphrase (PBKDF2).
    I dati modificati restano in localStorage, cifrati con la stessa chiave. */
 (function () {
@@ -11,6 +11,34 @@ const LS_DATA = 'orario.tasso.data', LS_KEY = 'orario.tasso.key';
 const CLASSE = /^[123][ABCDEF]$/;
 const DAYNAME = { LUN: 'Lunedì', MAR: 'Martedì', MER: 'Mercoledì', GIO: 'Giovedì', VEN: 'Venerdì' };
 const RUOLI = { curricolare: 'Curricolare', l2: 'Italiano L2', sostegno: 'Sostegno', educatore: 'Educatore' };
+
+/* ---- fasce orarie: ore { da, a } + intervalli { dopo, da, a, nome } ---- */
+const ORARI_DEF = [['08:00', '08:55'], ['08:55', '09:50'], ['10:00', '10:55'], ['10:55', '11:50'], ['12:00', '12:55'], ['12:55', '13:50']];
+const NORE = () => DATA.orari.length;
+function mins(v) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v == null ? '' : v).trim()); return m ? (+m[1] * 60 + +m[2]) : null; }
+function hhmm(t) { t = ((Math.round(t) % 1440) + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); }
+function durata(o) { const a = mins(o && o.da), b = mins(o && o.a); return (a == null || b == null) ? null : ((b - a) + 1440) % 1440; }
+function fascia(o) { return (!o || !o.da) ? '' : (o.a ? o.da + '–' + o.a : o.da); }
+function fasciaHTML(o) { return (!o || !o.da) ? '' : `<span>${esc(o.da)}</span>${o.a ? `<span class="to">${esc(o.a)}</span>` : ''}`; }
+function pausaDopo(n) { return (DATA.pause || []).find(p => p.dopo === n) || null; }
+function timeline() {
+  const out = [];
+  for (let i = 0; i < NORE(); i++) {
+    out.push({ tipo: 'ora', i: i, o: DATA.orari[i] });
+    const p = pausaDopo(i + 1);
+    if (p) out.push({ tipo: 'pausa', i: i, o: p });
+  }
+  return out;
+}
+function incoerente() {
+  let prec = null;
+  for (const it of timeline()) {
+    const a = mins(it.o.da), b = mins(it.o.a);
+    if (a == null || b == null || b < a || (prec != null && a < prec)) return true;
+    prec = b;
+  }
+  return false;
+}
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function b64e(buf) { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
@@ -104,9 +132,41 @@ function ruoloDaMateria(m) {
   return 'curricolare';
 }
 
+/* Le ore erano un array di stringhe ("08:00"), ora sono { da, a }:
+   i dati gia' salvati sui dispositivi e i vecchi backup restano importabili. */
+function migraOrari(v) {
+  if (!Array.isArray(v) || !v.length) return ORARI_DEF.map(x => ({ da: x[0], a: x[1] }));
+  if (typeof v[0] === 'string') return v.map((s, i) => {
+    const a = mins(s), b = (i + 1 < v.length ? mins(v[i + 1]) : (a == null ? null : a + 60));
+    return { da: a == null ? '' : hhmm(a), a: (a == null || b == null) ? '' : hhmm(b) };
+  });
+  return v.map(o => ({ da: (o && o.da) || '', a: (o && o.a) || '' }));
+}
+
+function migraPause(p, orari) {
+  if (Array.isArray(p)) {
+    const out = p.map(x => ({
+      dopo: Math.max(1, Math.round(+x.dopo) || 1),
+      da: x.da || '', a: x.a || '', nome: x.nome || 'Intervallo'
+    })).filter(x => x.dopo < orari.length);
+    out.sort((a, b) => a.dopo - b.dopo);
+    return out;
+  }
+  const out = [];                                  // prima volta: intervallo dopo la 2ª e la 4ª ora
+  [2, 4].forEach(n => {
+    if (n >= orari.length) return;
+    const o = orari[n - 1], d = durata(o), f = mins(o && o.a);
+    if (f == null || d == null || d < 25) return;
+    o.a = hhmm(f - 10);
+    out.push({ dopo: n, da: hhmm(f - 10), a: hhmm(f), nome: 'Intervallo' });
+  });
+  return out;
+}
+
 function normalizza(d) {
   d.giorni = d.giorni || ['LUN', 'MAR', 'MER', 'GIO', 'VEN'];
-  d.orari = d.orari || ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00'];
+  d.orari = migraOrari(d.orari);
+  d.pause = migraPause(d.pause, d.orari);
   d.docenti = d.docenti || [];
   d.docenti.forEach(t => {
     if (t.ruolo === 'educatrice') t.ruolo = 'educatore';
@@ -114,8 +174,8 @@ function normalizza(d) {
     if (!t.sost || typeof t.sost !== 'object') t.sost = {};   // sostituzioni: { "LUN|2": 1 }
     if (!t.celle || typeof t.celle !== 'object') t.celle = {};
     d.giorni.forEach(g => {
-      if (!Array.isArray(t.celle[g])) t.celle[g] = ['', '', '', '', '', ''];
-      while (t.celle[g].length < 6) t.celle[g].push('');
+      if (!Array.isArray(t.celle[g])) t.celle[g] = [];
+      while (t.celle[g].length < d.orari.length) t.celle[g].push('');
     });
   });
   if (!d.docenti.some(t => t.id === d.io) && d.docenti.length) d.io = d.docenti[0].id;
@@ -189,6 +249,11 @@ function render() {
   if (!$('#modalRoot').firstElementChild) window.scrollTo(0, 0);
 }
 
+function pausaHTML(i) {
+  const p = pausaDopo(i + 1);
+  return p ? `<li class="pausa"><span>${esc(p.nome || 'Intervallo')}</span><span>${esc(fascia(p))}</span></li>` : '';
+}
+
 function viewHome() {
   const me = io(), oggi = oggiOpp();
   if (!me) { $('#view').innerHTML = '<p class="hint">Nessun docente in elenco.</p>'; return; }
@@ -196,19 +261,21 @@ function viewHome() {
     `<button data-g="${g}" class="${g === giorno ? 'on' : ''} ${g === oggi ? 'today' : ''}">${g}</button>`).join('') + '</div>';
 
   h += '<ul class="ore">';
-  for (let i = 0; i < 6; i++) {
-    const v = me.celle[giorno][i], ora = DATA.orari[i] || '';
+  for (let i = 0; i < NORE(); i++) {
+    const v = me.celle[giorno][i] || '', ora = fasciaHTML(DATA.orari[i]);
     const solo = !!me.sost[K(giorno, i)];
     if (!v) {
       h += `<li><button class="ora vuota" data-cell="${giorno}|${i}|${me.id}">
-        <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
+        <span class="ora-n"><b>${i + 1}ª</b>${ora}</span>
         <span class="ora-body"><span class="muted">libera</span></span></button></li>`;
+      h += pausaHTML(i);
       continue;
     }
     if (!CLASSE.test(v)) {
       h += `<li><button class="ora" data-cell="${giorno}|${i}|${me.id}">
-        <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
+        <span class="ora-n"><b>${i + 1}ª</b>${ora}</span>
         <span class="ora-body"><span class="ora-top"><span class="cls alt">${esc(v)}</span></span></span></button></li>`;
+      h += pausaHTML(i);
       continue;
     }
     const c = compresenze(v, giorno, i, me.id);
@@ -226,11 +293,12 @@ function viewHome() {
       mat = '';
     }
     h += `<li><button class="ora${solo ? ' is-sost' : ''}" data-cell="${giorno}|${i}|${me.id}">
-      <span class="ora-n"><b>${i + 1}ª</b><span>${ora}</span></span>
+      <span class="ora-n"><b>${i + 1}ª</b>${ora}</span>
       <span class="ora-body">
         <span class="ora-top"><span class="cls">${esc(v)}</span><span class="cur">${principale}</span></span>
         <span class="ora-sub">${mat}${altri.length ? (mat ? ' · ' : '') + 'anche ' + altri.join(', ') : ''}</span>
       </span></button></li>`;
+    h += pausaHTML(i);
   }
   h += '</ul>';
 
@@ -269,8 +337,8 @@ function viewScheda() {
     <div class="sub">${esc(materiaBreve(t))}${t.cattedra ? ' · ' + esc(t.cattedra) : ''}</div></div>`;
   h += '<div class="card"><table class="grid"><thead><tr><th></th>' +
     DATA.giorni.map(g => `<th>${g}</th>`).join('') + '</tr></thead><tbody>';
-  for (let i = 0; i < 6; i++) {
-    h += `<tr><td class="h">${i + 1}ª</td>`;
+  for (let i = 0; i < NORE(); i++) {
+    h += `<tr><td class="h" title="${esc(fascia(DATA.orari[i]))}">${i + 1}ª</td>`;
     for (const g of DATA.giorni) {
       const v = t.celle[g][i];
       const insieme = v && CLASSE.test(v) && me.id !== t.id && me.celle[g][i] === v;
@@ -280,6 +348,8 @@ function viewScheda() {
       h += `<td><button class="${cls}" data-cell="${g}|${i}|${t.id}" title="${esc(v)}">${inner}</button></td>`;
     }
     h += '</tr>';
+    const pz = pausaDopo(i + 1);
+    if (pz) h += `<tr class="rpausa"><td></td><td colspan="${DATA.giorni.length}">${esc((pz.nome || 'Intervallo') + ' · ' + fascia(pz))}</td></tr>`;
   }
   h += '</tbody></table></div>';
   const n = DATA.giorni.reduce((a, g) => a + t.celle[g].filter(v => v).length, 0);
@@ -293,13 +363,73 @@ function viewScheda() {
   $('#delDoc').onclick = () => eliminaDocente(t.id);
 }
 
+function slotsHTML() {
+  return timeline().map(it => {
+    const o = it.o, pausa = it.tipo === 'pausa', key = (pausa ? 'pausa|' : 'ora|') + it.i, d = durata(o);
+    const testa = pausa
+      ? `<input type="text" class="sn" data-slot="${key}|nome" value="${esc(o.nome || 'Intervallo')}" maxlength="14">`
+      : `<span class="sn">${it.i + 1}ª ora</span>`;
+    return `<div class="slot${pausa ? ' int' : ''}">${testa}
+      <input type="time" data-slot="${key}|da" value="${esc(o.da)}">
+      <input type="time" data-slot="${key}|a" value="${esc(o.a)}">
+      <span class="sm">${d == null ? '' : d + '\''}</span>
+      <button class="sx" data-del="${key}" aria-label="Rimuovi">\u00d7</button></div>`;
+  }).join('');
+}
+
+function ricalcolaCatena() {
+  const t = timeline();
+  if (!t.length) return;
+  let cur = mins(t[0].o.da);
+  if (cur == null) { toast('Imposta l\'inizio della 1ª ora'); return; }
+  t.forEach(it => {
+    const d = durata(it.o), dur = (d == null || d === 0) ? (it.tipo === 'pausa' ? 10 : 55) : d;
+    it.o.da = hhmm(cur); it.o.a = hhmm(cur + dur); cur += dur;
+  });
+  salva(); viewImpostazioni(); toast('Orari messi in sequenza');
+}
+
+function confermaRimuoviOra(i) {
+  openModal(`<h3>Eliminare la ${i + 1}ª ora?</h3>
+    <p class="sub">Quello che è scritto in quell'ora sparisce da tutti i docenti e le ore successive scalano di una posizione.</p>
+    <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary del">Elimina</button></div>`,
+    root => {
+      root.querySelector('[data-a="no"]').onclick = chiudiTop;
+      root.querySelector('[data-a="si"]').onclick = () => { rimuoviOra(i); closeModal(); render(); toast('Ora eliminata'); };
+    });
+}
+
+function rimuoviOra(i) {
+  if (NORE() <= 1) { toast('Deve restare almeno un\'ora'); return; }
+  DATA.orari.splice(i, 1);
+  DATA.pause = (DATA.pause || []).filter(x => x.dopo !== i + 1);
+  DATA.pause.forEach(x => { if (x.dopo > i + 1) x.dopo--; });
+  DATA.pause = DATA.pause.filter(x => x.dopo < DATA.orari.length);
+  DATA.docenti.forEach(t => {
+    DATA.giorni.forEach(g => { if (Array.isArray(t.celle[g])) t.celle[g].splice(i, 1); });
+    const s2 = {};
+    Object.keys(t.sost || {}).forEach(k => {
+      const q = k.split('|'), n = +q[1];
+      if (n === i) return;
+      s2[q[0] + '|' + (n > i ? n - 1 : n)] = 1;
+    });
+    t.sost = s2;
+  });
+  normalizza(DATA); salva();
+}
+
 function viewImpostazioni() {
   const m = DATA.meta || {};
   let h = '<div class="sec">Docente principale</div><div class="rows"><div class="row"><span class="lbl">Home mostra</span>' +
     '<select id="selIo">' + DATA.docenti.map(t => `<option value="${t.id}" ${t.id === DATA.io ? 'selected' : ''}>${esc(t.nome)}</option>`).join('') + '</select></div></div>';
 
-  h += '<div class="sec">Orario delle lezioni</div><div class="rows"><div class="times">' +
-    DATA.orari.map((v, i) => `<label>${i + 1}ª <input type="time" data-ora="${i}" value="${esc(v)}"></label>`).join('') + '</div></div>';
+  h += '<div class="sec">Orario delle lezioni</div><div class="rows"><div class="slots">' + slotsHTML() + '</div></div>';
+  if (incoerente()) h += '<p class="hint warn">Qualche orario manca o si sovrappone al successivo.</p>';
+  h += '<div class="rows" style="margin-top:8px">' +
+    '<button class="row" data-act="oraAdd"><span class="lbl">Aggiungi un\'ora</span><span class="val">+</span></button>' +
+    '<button class="row" data-act="pausaAdd"><span class="lbl">Aggiungi un intervallo</span><span class="val">+</span></button>' +
+    '<button class="row" data-act="catena"><span class="lbl">Ricalcola in sequenza</span><span class="val">\u203a</span></button></div>' +
+    '<p class="hint">Ogni ora ha inizio e fine; gli intervalli stanno fra un\'ora e l\'altra e si possono aggiungere, spostare o togliere.<br>«Ricalcola in sequenza» rimette tutto in fila dall\'inizio della 1ª ora, mantenendo le durate.</p>';
 
   h += '<div class="sec">Colleghi</div><div class="rows">' +
     '<button class="row" data-act="nuovo"><span class="lbl">Aggiungi docente</span><span class="val">›</span></button>' +
@@ -323,13 +453,24 @@ function viewImpostazioni() {
     <div class="row"><span class="lbl">Scuola</span><span class="val">${esc(m.scuola || '')}</span></div>
     <div class="row"><span class="lbl">Anno</span><span class="val">${esc(m.anno || '')}</span></div>
     <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(m.generato || '')}</span></div>
-    <div class="row"><span class="lbl">Versione app</span><span class="val">1.1</span></div></div>`;
+    <div class="row"><span class="lbl">Versione app</span><span class="val">1.2</span></div></div>`;
   h += '<p class="hint">Orario provvisorio: le modifiche fatte qui restano su questo dispositivo.</p>';
   $('#view').innerHTML = h;
 
   $('#selIo').onchange = e => { DATA.io = e.target.value; salva(); toast('Aggiornato'); };
-  document.querySelectorAll('[data-ora]').forEach(inp => inp.onchange = () => {
-    DATA.orari[+inp.dataset.ora] = inp.value; salva();
+  document.querySelectorAll('[data-slot]').forEach(inp => inp.onchange = () => {
+    const parti = inp.dataset.slot.split('|'), i = +parti[1];
+    const o = parti[0] === 'ora' ? DATA.orari[i] : pausaDopo(i + 1);
+    if (!o) return;
+    o[parti[2]] = inp.value;
+    salva(); viewImpostazioni();
+  });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const parti = b.dataset.del.split('|'), i = +parti[1];
+    if (parti[0] === 'pausa') {
+      DATA.pause = DATA.pause.filter(x => x.dopo !== i + 1);
+      salva(); viewImpostazioni(); toast('Intervallo rimosso');
+    } else confermaRimuoviOra(i);
   });
   $('#ric').onchange = async e => {
     if (e.target.checked) { const raw = await crypto.subtle.exportKey('raw', KEY); localStorage.setItem(LS_KEY, b64e(raw)); toast('Passphrase memorizzata'); }
@@ -625,6 +766,29 @@ function leggiFile(accept, cb) {
 
 async function azione(a) {
   if (a === 'nuovo') editDocente(null);
+  if (a === 'oraAdd') {
+    const ult = DATA.orari[DATA.orari.length - 1], f = mins(ult && ult.a);
+    DATA.orari.push({ da: f == null ? '' : hhmm(f), a: f == null ? '' : hhmm(f + 55) });
+    normalizza(DATA); salva(); viewImpostazioni(); toast('Ora aggiunta');
+  }
+  if (a === 'catena') ricalcolaCatena();
+  if (a === 'pausaAdd') {
+    const liberi = [];
+    for (let i = 1; i < NORE(); i++) if (!pausaDopo(i)) liberi.push(i);
+    if (!liberi.length) { toast('Non c\'è spazio per un altro intervallo'); return; }
+    openModal(`<h3>Nuovo intervallo</h3>
+      <label class="fld">Dopo quale ora<select id="pDopo">${liberi.map(n => `<option value="${n}">${n}ª ora</option>`).join('')}</select></label>
+      <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary">Aggiungi</button></div>`,
+      root => {
+        root.querySelector('[data-a="no"]').onclick = chiudiTop;
+        root.querySelector('[data-a="si"]').onclick = () => {
+          const n = +root.querySelector('#pDopo').value, f = mins(DATA.orari[n - 1] && DATA.orari[n - 1].a);
+          DATA.pause.push({ dopo: n, da: f == null ? '' : hhmm(f), a: f == null ? '' : hhmm(f + 10), nome: 'Intervallo' });
+          DATA.pause.sort((x, y) => x.dopo - y.dopo);
+          salva(); closeModal(); render(); toast('Intervallo aggiunto');
+        };
+      });
+  }
   if (a === 'csvout') {
     download('colleghi-' + new Date().toISOString().slice(0, 10) + '.csv', csvDocenti(), 'text/csv');
     toast('CSV esportato');

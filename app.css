@@ -69,9 +69,14 @@ button{background:none;border:0;cursor:pointer}
 .ora{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   padding:12px 14px;align-items:flex-start;text-align:left;width:100%;min-height:62px}
 .ora:active{background:var(--soft)}
-.ora-n{flex:0 0 46px;display:flex;flex-direction:column;align-items:flex-start}
+.ora-n{flex:0 0 52px;display:flex;flex-direction:column;align-items:flex-start}
 .ora-n b{font-size:1rem}
-.ora-n span{font-size:.72rem;color:var(--muted)}
+.ora-n span{font-size:.72rem;color:var(--muted);line-height:1.25}
+.ora-n .to{opacity:.7}
+.ora-n .to::before{content:"–"}
+.ore li.pausa{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:1px 10px;font-size:.72rem;color:var(--muted)}
+.ore li.pausa span:first-child{text-transform:uppercase;letter-spacing:.6px}
 .ora-body{flex:1;min-width:0}
 .ora-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .cls{background:var(--accent);color:#fff;border-radius:8px;padding:2px 9px;font-weight:700;font-size:.95rem;letter-spacing:.3px}
@@ -105,6 +110,7 @@ button{background:none;border:0;cursor:pointer}
 .grid th{font-size:.7rem;color:var(--muted);font-weight:600;padding:4px 0}
 .grid td{padding:2px}
 .grid .h{width:24px;font-size:.7rem;color:var(--muted);text-align:center}
+.grid tr.rpausa td{padding:1px 2px;font-size:.6rem;color:var(--muted);text-align:center;letter-spacing:.3px}
 .cell{width:100%;min-height:44px;border-radius:9px;border:1px solid var(--line);background:var(--bg);
   display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2px;overflow:hidden}
 .cell b{font-size:.92rem;font-weight:700}
@@ -123,9 +129,17 @@ button{background:none;border:0;cursor:pointer}
 .row .val{color:var(--muted);font-size:.86rem}
 .row select,.row input[type=time]{border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:7px 9px}
 .row.danger .lbl{color:#c0392b}
-.times{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px 14px}
-.times label{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted)}
-.times input{flex:1;min-width:0}
+.slots{display:flex;flex-direction:column;gap:7px;padding:11px 12px}
+.slot{display:flex;align-items:center;gap:6px}
+.slot .sn{flex:0 0 82px;min-width:0;font-size:.78rem;color:var(--muted);font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot input[type=time]{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);
+  border-radius:9px;padding:7px 8px;font-size:.9rem}
+.slot input.sn{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 6px;font-size:.72rem}
+.slot .sm{flex:0 0 32px;text-align:right;font-size:.7rem;color:var(--muted)}
+.slot .sx{flex:0 0 24px;font-size:1.15rem;line-height:1;color:var(--muted);padding:2px}
+.slot.int input[type=time]{background:var(--soft);border-color:transparent}
+.hint.warn{color:var(--warn)}
 
 /* ---------- modal ---------- */
 .mask{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:50;display:flex;align-items:flex-end;justify-content:center}

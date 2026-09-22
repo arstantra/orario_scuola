@@ -79,7 +79,8 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
             "generato": "2026-09-20", "nota": "Orario provvisorio" },
   "giorni": ["LUN","MAR","MER","GIO","VEN"],
   "giorniLunghi": { "LUN": "Lunedì", "...": "..." },
-  "orari": ["08:00","09:00","10:00","11:00","12:00","13:00"],
+  "orari": [ { "da": "08:00", "a": "08:55" }, { "da": "08:55", "a": "09:50" } ],
+  "pause": [ { "dopo": 2, "da": "09:50", "a": "10:00", "nome": "Intervallo" } ],
   "io": "poletti-andrea",
   "docenti": [
     { "id": "poletti-andrea",
@@ -93,7 +94,17 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
 }
 ```
 
-- `celle[giorno]` è **sempre** un array di 6 stringhe (`normalizza()` lo garantisce).
+- `orari` sono le **ore di lezione**, una per riga della griglia: inizio e fine. Il numero di ore
+  **non è più fisso a 6**, si aggiungono e si tolgono dalle Impostazioni; le viste ciclano su
+  `NORE()` (= `DATA.orari.length`).
+- `pause` sono gli **intervalli fra un'ora e l'altra**: `dopo` è il numero (1-based) dell'ora che
+  li precede ed è sempre < numero di ore. Non occupano una colonna della griglia, si disegnano
+  soltanto (home e scheda docente).
+- **Migrazione automatica in `normalizza()`:** `migraOrari()` converte il vecchio array di stringhe
+  (`["08:00", …]`, ogni ora finiva dove cominciava la successiva) e `migraPause()`, la prima volta,
+  ritaglia 10 minuti in coda alla 2ª e alla 4ª ora per creare i due intervalli. Vecchi backup e dati
+  già salvati sui dispositivi restano importabili.
+- `celle[giorno]` è **sempre** un array lungo quanto `orari` (`normalizza()` lo garantisce).
 - Una cella è una **classe** se corrisponde a `/^[123][ABCDEF]$/`; altrimenti è testo libero
   (`"Boiardo"`, `"Potenziamento"`, `"Ufficio"`, `"Laboratorio"`, `"X"`, una nota…) o vuota.
 - `ruolo` ∈ `curricolare` | `l2` | `sostegno` | `educatore`. Si deriva da `materia`
@@ -151,6 +162,14 @@ perché il file della scuola può cambiare forma:
   mappate a etichetta leggibile (Boiardo, Baura, Dante, Ponte, De Pisis, ITI)
 - `P` ripetuta = Potenziamento, `UFF` = Ufficio, `Lab`/`lab` = Laboratorio, `X` = **ignoto**
 - il JSON in chiaro va nella cartella superiore, **mai** nel repo; poi `cifra.html`
+
+**Cambiare le fasce orarie**
+Tutto da *Impostazioni → Orario delle lezioni*: ogni riga ha inizio, fine e durata calcolata.
+Si aggiunge un'ora in coda, si aggiunge un intervallo scegliendo dopo quale ora, si rinomina
+l'intervallo scrivendoci dentro, si toglie una riga con la ×. *Ricalcola in sequenza* rimette
+tutto in fila dall'inizio della 1ª ora mantenendo le durate: serve quando gli orari si
+sovrappongono (l'app lo segnala). **Eliminare un'ora cancella quella colonna per tutti i
+docenti** e fa scalare le successive, comprese le sostituzioni: c'è una conferma.
 
 **Caricare o correggere l'elenco dei colleghi**
 Da *Impostazioni → Colleghi*: si aggiunge un docente a mano, oppure si importa un CSV
