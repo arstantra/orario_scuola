@@ -189,3 +189,10 @@ button{background:none;border:0;cursor:pointer}
 .sheet .list{margin-bottom:12px;max-height:44dvh;overflow:auto}
 .sheet select{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);
   background:var(--bg);margin-top:5px}
+
+/* v1.3 — istantanee e nuovo orario */
+.row .val.warn{color:var(--warn);font-weight:600}
+.small{font-size:.78rem}
+.perse{margin:0 0 14px;padding-left:18px;font-size:.86rem;max-height:40vh;overflow:auto}
+.perse li{margin-bottom:5px}
+.sheet .rows{margin-bottom:12px;max-height:55vh;overflow:auto}

@@ -1,6 +1,6 @@
 /* Service worker — cache degli asset per il funzionamento offline.
    Strategia: stale-while-revalidate (parte subito dalla cache, aggiorna in background). */
-const CACHE = 'orario-tasso-v4';
+const CACHE = 'orario-tasso-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -37,6 +37,16 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     caches.open(CACHE).then(async cache => {
       const cached = await cache.match(req, { ignoreSearch: true });
+      /* i dati prima dalla rete (un nuovo orario arriva alla prima apertura), poi dalla cache */
+      if (new URL(req.url).pathname.endsWith('/data-enc.js')) {
+        const dallaRete = fetch(req, { cache: 'no-cache' }).then(res => {
+          if (res && res.ok) { cache.put(req, res.clone()); return res; }
+          return null;
+        }).catch(() => null);
+        const attesa = new Promise(r => setTimeout(() => r(null), cached ? 4000 : 30000));
+        return (await Promise.race([dallaRete, attesa])) || cached || (await dallaRete) ||
+          new Response('', { status: 503, statusText: 'Offline' });
+      }
       const rete = fetch(req).then(res => {
         if (res && res.ok) cache.put(req, res.clone());
         return res;

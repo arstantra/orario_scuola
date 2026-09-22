@@ -9,3 +9,6 @@ Thumbs.db
 desktop.ini
 *.tmp
 ~$*
+
+# tabelloni della scuola: dati in chiaro
+*.xlsx

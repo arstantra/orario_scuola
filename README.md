@@ -34,18 +34,35 @@ quindi il repo può restare pubblico. Anche le modifiche salvate in `localStorag
 la stessa chiave. La passphrase non è recuperabile: se si perde, si rigenera `data-enc.js` dal JSON
 in chiaro con `cifra.html`.
 
-## Generare o aggiornare data-enc.js
+## Quando arriva un nuovo tabellone Excel
 
-1. Doppio clic su `cifra.html` (funziona offline, non manda niente in rete).
-2. Scegli il JSON in chiaro — `dati-originali.json` nella cartella superiore, oppure un backup
-   esportato dall'app — scrivi due volte la passphrase, premi *Cifra e scarica*.
-3. Sposta il `data-enc.js` scaricato in questa cartella, sovrascrivendo il precedente.
-4. Alza la versione della cache in `sw.js` (`const CACHE = 'orario-tasso-v2'`, poi v3…) così i
-   dispositivi già installati scaricano la versione nuova invece di usare quella in cache.
-5. Commit e push.
+Il tabellone della scuola è la fonte di verità della griglia.
 
-In alternativa, dall'app: *Impostazioni → Esporta data-enc.js* rigenera il file con la passphrase
-già in uso, includendo le modifiche fatte sul dispositivo.
+1. Salva il file in `../tabelloni/` con la data davanti (`2026-09-29_ORARIO....xlsx`). Non sovrascrivere mai
+   i tabelloni vecchi.
+2. Apri `cifra.html` da questa cartella (doppio clic, lavora offline). Nella sezione **1** scegli l'Excel,
+   scrivi la passphrase di sempre e premi il pulsante. La pagina ti dice quante celle sono cambiate, chi è
+   entrato e chi è uscito, e cosa cambia nel tuo orario.
+3. Sposta il `data-enc.js` scaricato qui al posto del vecchio, alza `CACHE` in `sw.js`, commit e push.
+4. Telefono e tablet adottano il nuovo orario da soli alla prima apertura, senza chiedere la passphrase.
+   La griglia arriva dall'Excel; restano **fasce orarie, intervalli, materia e ruolo, "io", docenti
+   aggiunti a mano, sostituzioni sulle ore rimaste uguali**. Se l'Excel riscrive celle modificate a mano,
+   l'app le elenca e offre *Rimetti le mie*. Prima di tutto fa una copia di sicurezza.
+
+`cifra.html` riusa sempre il salt del `data-enc.js` presente: per questo la passphrase deve restare
+la stessa. Con la sezione **2** si cifra un JSON in chiaro; con la **3** si apre qualunque `data-enc.js`,
+anche preso dalla storia di GitHub, e se ne scarica il JSON in chiaro.
+
+## Copie di sicurezza
+
+- **Sul dispositivo, automatiche:** *Impostazioni → Versioni precedenti*. Una al giorno più una prima di
+  ogni azione che cancella (ripristina, importa JSON o CSV, elimina ora, elimina docente, nuovo orario,
+  ripristino). Si tengono le ultime 14.
+- **Fuori dal dispositivo:** *Esporta backup JSON* (la riga dice la data dell'ultimo; diventa arancione
+  dopo 30 giorni). Il file va in `../backup/`.
+- **Fuori dall'account Microsoft:** ogni `data-enc.js` pubblicato resta nella storia di GitHub.
+- Se un salvataggio locale non si apre più, l'app non lo sovrascrive: lo mette da parte in
+  `orario.tasso.orfano`.
 
 ## Deploy (GitHub Pages + dominio custom)
 
@@ -65,9 +82,9 @@ già in uso, includendo le modifiche fatte sul dispositivo.
 ## Note d'uso
 
 Le modifiche alle celle restano nel `localStorage` del singolo dispositivo e non si sincronizzano
-fra telefono, tablet e computer: per spostarle si usa *Impostazioni → Esporta backup JSON* e
-*Importa backup JSON*. Per cambiare l'orario di partenza su tutti i dispositivi si rigenera
-`data-enc.js` e si fa push.
+fra telefono e tablet: per spostarle si usa *Esporta backup JSON* e *Importa backup JSON*. Per cambiare
+l'orario su tutti i dispositivi si fa il giro del nuovo tabellone (sopra), oppure dall'app *Esporta
+data-enc.js*, che pubblica come nuovo orario di base quello del dispositivo.
 
 Dati ricavati da `Docenti- ORARIO PROVVISORIO_con L2- 21settembre-25 settembre.xlsx`
 (orario provvisorio, 44 docenti, 13 classi).

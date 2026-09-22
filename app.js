@@ -1,4 +1,4 @@
-/* Orario T. Tasso — app.js  (v1.2)
+/* Orario T. Tasso — app.js  (v1.3)
    Vanilla JS, nessuna dipendenza. Dati cifrati AES-GCM, chiave da passphrase (PBKDF2).
    I dati modificati restano in localStorage, cifrati con la stessa chiave. */
 (function () {
@@ -8,6 +8,8 @@
 const $ = (s, r) => (r || document).querySelector(s);
 const enc = new TextEncoder(), dec = new TextDecoder();
 const LS_DATA = 'orario.tasso.data', LS_KEY = 'orario.tasso.key';
+const LS_SNAP = 'orario.tasso.snap', LS_ORFANO = 'orario.tasso.orfano', LS_EXPORT = 'orario.tasso.export';
+const MAX_SNAP = 14;
 const CLASSE = /^[123][ABCDEF]$/;
 const DAYNAME = { LUN: 'Lunedì', MAR: 'Martedì', MER: 'Mercoledì', GIO: 'Giovedì', VEN: 'Venerdì' };
 const RUOLI = { curricolare: 'Curricolare', l2: 'Italiano L2', sostegno: 'Sostegno', educatore: 'Educatore' };
@@ -99,7 +101,7 @@ $('#lockForm').addEventListener('submit', async ev => {
   const btn = $('#lockBtn'); btn.disabled = true; btn.textContent = 'Apro…'; $('#lockErr').hidden = true;
   try {
     KEY = await deriveKey(pass, b64d(box.salt), box.iter || 310000);
-    await apri();
+    await apri(pass);
     if ($('#remember').checked) {
       const raw = await crypto.subtle.exportKey('raw', KEY);
       localStorage.setItem(LS_KEY, b64e(raw));
@@ -111,16 +113,169 @@ $('#lockForm').addEventListener('submit', async ev => {
   } finally { btn.disabled = false; btn.textContent = 'Apri'; }
 });
 
-async function apri() {
+async function apri(pass) {
   ORIGINALE = await decryptObj(window.ORARIO_ENC, KEY);
-  DATA = null;
-  const loc = localStorage.getItem(LS_DATA);
-  if (loc) { try { DATA = await decryptObj(JSON.parse(loc), KEY); } catch (e) { } }
-  if (!DATA) DATA = clone(ORIGINALE);
+  normalizza(ORIGINALE);
+  DATA = await leggiLocale(pass);
+  let avviso = null;
+  if (!DATA) { DATA = clone(ORIGINALE); DATA.base = baseId(ORIGINALE); }
+  else {
+    normalizza(DATA);
+    if (!DATA.base) DATA.base = (DATA.meta && DATA.meta.generato) || '';
+    if (DATA.base !== baseId(ORIGINALE)) {            // e' arrivato un nuovo tabellone
+      istantanea('prima del nuovo orario');
+      avviso = fondi(ORIGINALE, DATA);
+    }
+  }
   normalizza(DATA);
+  DATA.man = modificheManuali(DATA, ORIGINALE);
+  await salva();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
   $('#lock').hidden = true; $('#app').hidden = false;
   giorno = oggiOpp();
   render();
+  if (avviso) mostraNuovoOrario(avviso);
+}
+
+/* Legge i dati salvati sul dispositivo. Se non si aprono con la chiave attuale
+   (es. data-enc.js rigenerato con un altro salt) prova la chiave vecchia e, se
+   neanche quella va, mette da parte il blob invece di sovrascriverlo. */
+async function leggiLocale(pass) {
+  const loc = localStorage.getItem(LS_DATA);
+  if (!loc) return null;
+  let p; try { p = JSON.parse(loc); } catch (e) { return null; }
+  try { return await decryptObj(p, KEY); } catch (e) { }
+  if (pass && p.salt && p.salt !== window.ORARIO_ENC.salt) {
+    try {
+      const k = await deriveKey(pass, b64d(p.salt), p.iter || window.ORARIO_ENC.iter || 310000);
+      return await decryptObj(p, k);
+    } catch (e) { }
+  }
+  try { if (!localStorage.getItem(LS_ORFANO)) localStorage.setItem(LS_ORFANO, loc); } catch (e) { }
+  return null;
+}
+
+/* ============ nuovo tabellone: fusione ============ */
+const baseId = d => String((d.meta && d.meta.generato) || '');
+
+/* celle diverse dal tabellone: { idDocente: { "GIO|3": "1C" } } */
+function modificheManuali(d, base) {
+  const out = {};
+  d.docenti.forEach(t => {
+    const b = base.docenti.find(x => x.id === t.id);
+    if (!b) return;
+    d.giorni.forEach(g => (t.celle[g] || []).forEach((v, h) => {
+      const bv = (b.celle[g] || [])[h] || '';
+      if ((v || '') !== bv) (out[t.id] = out[t.id] || {})[K(g, h)] = v || '';
+    }));
+  });
+  return out;
+}
+
+/* La griglia arriva dal tabellone; resta tutto il resto fatto a mano:
+   fasce orarie, intervalli, materia e ruolo, "io", docenti aggiunti a mano,
+   sostituzioni sulle ore rimaste uguali. */
+function fondi(nuovo, vecchio) {
+  const trova = n => vecchio.docenti.find(t => t.id === n.id) ||
+    vecchio.docenti.find(t => norm(t.nome) === norm(n.nome));
+  const presi = new Set(), lista = [], perse = [];
+  const man = vecchio.man || {};
+  nuovo.docenti.forEach(n => {
+    const o = trova(n);
+    if (!o) { const c = clone(n); c.sost = {}; lista.push(c); return; }
+    presi.add(o);
+    const sost = {};
+    Object.keys(o.sost || {}).forEach(k => {
+      const q = k.split('|'), h = +q[1];
+      if (((o.celle[q[0]] || [])[h] || '') === ((n.celle[q[0]] || [])[h] || '')) sost[k] = 1;
+    });
+    Object.keys(man[o.id] || {}).forEach(k => {
+      const q = k.split('|'), h = +q[1], v = man[o.id][k];
+      if (((n.celle[q[0]] || [])[h] || '') !== v) perse.push({ id: o.id, nome: o.nome, g: q[0], h: h, v: v, excel: (n.celle[q[0]] || [])[h] || '' });
+    });
+    o.celle = clone(n.celle); o.sost = sost; o.cattedra = n.cattedra;
+    lista.push(o);
+  });
+  const vecchiBase = vecchio.baseIds;
+  vecchio.docenti.forEach(o => {
+    if (presi.has(o)) return;
+    if (o.manuale || (vecchiBase && vecchiBase.indexOf(o.id) < 0)) lista.push(o);
+  });
+  vecchio.docenti = lista;
+  vecchio.meta = clone(nuovo.meta);
+  vecchio.base = baseId(nuovo);
+  vecchio.baseIds = nuovo.docenti.map(t => t.id);
+  if (!vecchio.docenti.some(t => t.id === vecchio.io)) vecchio.io = nuovo.io;
+  return { data: nuovo.meta.generato, perse: perse };
+}
+
+function mostraNuovoOrario(a) {
+  const q = new Date(a.data), quando = isNaN(q) ? a.data : q.toLocaleDateString('it-IT');
+  if (!a.perse.length) { toast('Nuovo orario del ' + quando + ' caricato'); return; }
+  const righe = a.perse.slice(0, 12).map(x =>
+    `<li><b>${esc(x.nome)}</b> · ${esc(DAYNAME[x.g] || x.g)} ${x.h + 1}ª: ${esc(x.v || 'vuota')} <span class="muted">→ Excel: ${esc(x.excel || 'vuota')}</span></li>`).join('');
+  openModal(`<h3>Nuovo orario del ${esc(quando)}</h3>
+    <p class="sub">Il tabellone ha riscritto ${a.perse.length === 1 ? 'una cella che avevi' : a.perse.length + ' celle che avevi'} modificato a mano. Fasce orarie, ruoli e sostituzioni sono rimasti.</p>
+    <ul class="perse">${righe}${a.perse.length > 12 ? '<li class="muted">…</li>' : ''}</ul>
+    <div class="acts"><button data-a="rimetti">Rimetti le mie</button><button data-a="ok" class="primary">Va bene</button></div>`,
+    root => {
+      root.querySelector('[data-a="ok"]').onclick = () => { closeModal(); render(); };
+      root.querySelector('[data-a="rimetti"]').onclick = () => {
+        a.perse.forEach(x => { const t = byId(x.id); if (t && t.celle[x.g]) t.celle[x.g][x.h] = x.v; });
+        normalizza(DATA); salva(); closeModal(); render(); toast('Modifiche rimesse');
+      };
+    });
+}
+
+function dataGen(g) {
+  const d = new Date(g || '');
+  return (!g || isNaN(d)) ? (g || '') : (String(g).length > 10 ? dataOra(g) : d.toLocaleDateString('it-IT'));
+}
+
+/* ============ istantanee locali ============ */
+function leggiSnap() { try { return JSON.parse(localStorage.getItem(LS_SNAP) || '[]'); } catch (e) { return []; } }
+/* copia il salvataggio attuale (gia' cifrato) prima di un'azione che sovrascrive */
+function istantanea(motivo) {
+  const blob = localStorage.getItem(LS_DATA);
+  if (!blob) return;
+  const lista = leggiSnap();
+  if (lista.length && lista[0].blob === blob) return;       // niente doppioni
+  lista.unshift({ t: new Date().toISOString(), motivo: motivo, blob: blob });
+  while (lista.length > MAX_SNAP) lista.pop();
+  while (lista.length) {
+    try { localStorage.setItem(LS_SNAP, JSON.stringify(lista)); return; }
+    catch (e) { lista.pop(); }                              // spazio pieno: via la piu' vecchia
+  }
+}
+function istantaneaGiornaliera() {
+  const oggi = new Date().toISOString().slice(0, 10);
+  if (!leggiSnap().some(x => x.t.slice(0, 10) === oggi)) istantanea('inizio giornata');
+}
+function dataOra(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) + ' · ' +
+    d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+}
+function versioniPrecedenti() {
+  const lista = leggiSnap();
+  const righe = lista.length ? lista.map((x, i) =>
+    `<button class="row" data-i="${i}"><span class="lbl">${esc(dataOra(x.t))}<br><span class="muted small">${esc(x.motivo)}</span></span><span class="val">Ripristina</span></button>`).join('')
+    : '<div class="row"><span class="lbl muted">Nessuna versione salvata finora.</span></div>';
+  openModal(`<h3>Versioni precedenti</h3>
+    <p class="sub">Copie automatiche di questo dispositivo: una al giorno e una prima di ogni azione che cancella. Si tengono le ultime ${MAX_SNAP}.</p>
+    <div class="rows">${righe}</div>
+    <div class="acts"><button data-a="no">Chiudi</button></div>`,
+    root => {
+      root.querySelector('[data-a="no"]').onclick = chiudiTop;
+      root.querySelectorAll('[data-i]').forEach(b => b.onclick = async () => {
+        const x = leggiSnap()[+b.dataset.i]; if (!x) return;
+        let d;
+        try { d = await decryptObj(JSON.parse(x.blob), KEY); } catch (e) { return toast('Versione non leggibile con questa chiave'); }
+        istantanea('prima del ripristino');
+        DATA = d; normalizza(DATA); await salva(); closeModal(); render();
+        toast('Versione del ' + dataOra(x.t) + ' ripristinata');
+      });
+    });
 }
 
 function ruoloDaMateria(m) {
@@ -187,7 +342,13 @@ function oggiOpp() {
 }
 
 async function salva() {
-  try { localStorage.setItem(LS_DATA, JSON.stringify(await encryptObj(DATA, KEY))); }
+  try {
+    istantaneaGiornaliera();
+    if (ORIGINALE) DATA.man = modificheManuali(DATA, ORIGINALE);
+    const p = await encryptObj(DATA, KEY);
+    p.salt = window.ORARIO_ENC.salt; p.iter = window.ORARIO_ENC.iter;   // per riaprirlo anche se cambia il salt
+    localStorage.setItem(LS_DATA, JSON.stringify(p));
+  }
   catch (e) { toast('Salvataggio non riuscito'); }
 }
 
@@ -395,7 +556,7 @@ function confermaRimuoviOra(i) {
     <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary del">Elimina</button></div>`,
     root => {
       root.querySelector('[data-a="no"]').onclick = chiudiTop;
-      root.querySelector('[data-a="si"]').onclick = () => { rimuoviOra(i); closeModal(); render(); toast('Ora eliminata'); };
+      root.querySelector('[data-a="si"]').onclick = () => { istantanea('prima di elimina ' + (i + 1) + 'ª ora'); rimuoviOra(i); closeModal(); render(); toast('Ora eliminata'); };
     });
 }
 
@@ -438,9 +599,10 @@ function viewImpostazioni() {
     '</div><p class="hint">Il CSV aggiorna chi c\'è già e aggiunge i nuovi: nessuno viene rimosso.<br>Colonne: nome · materia · ruolo · cattedra.</p>';
 
   h += '<div class="sec">Dati</div><div class="rows">' +
-    '<button class="row" data-act="export"><span class="lbl">Esporta backup JSON</span><span class="val">›</span></button>' +
+    `<button class="row" data-act="export"><span class="lbl">Esporta backup JSON</span><span class="val${vecchioBackup() ? ' warn' : ''}">${esc(ultimoBackup())} ›</span></button>` +
     '<button class="row" data-act="import"><span class="lbl">Importa backup JSON</span><span class="val">›</span></button>' +
     '<button class="row" data-act="enc"><span class="lbl">Esporta data-enc.js (per GitHub)</span><span class="val">›</span></button>' +
+    '<button class="row" data-act="versioni"><span class="lbl">Versioni precedenti</span><span class="val">' + leggiSnap().length + ' ›</span></button>' +
     '<button class="row danger" data-act="reset"><span class="lbl">Ripristina orario originale</span><span class="val">›</span></button>' +
     '</div>';
 
@@ -452,8 +614,8 @@ function viewImpostazioni() {
   h += `<div class="sec">Info</div><div class="rows">
     <div class="row"><span class="lbl">Scuola</span><span class="val">${esc(m.scuola || '')}</span></div>
     <div class="row"><span class="lbl">Anno</span><span class="val">${esc(m.anno || '')}</span></div>
-    <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(m.generato || '')}</span></div>
-    <div class="row"><span class="lbl">Versione app</span><span class="val">1.2</span></div></div>`;
+    <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(dataGen(m.generato))}</span></div>
+    <div class="row"><span class="lbl">Versione app</span><span class="val">1.3</span></div></div>`;
   h += '<p class="hint">Orario provvisorio: le modifiche fatte qui restano su questo dispositivo.</p>';
   $('#view').innerHTML = h;
 
@@ -499,7 +661,7 @@ function editCella(g, h, id) {
     if (isCl && cl.indexOf(v) < 0) cl.push(v);
 
     let x = `<h3>${DAYNAME[g] || g} · ${h + 1}ª ora</h3>
-      <p class="sub">${esc(t.nome)}${DATA.orari[h] ? ' · ' + esc(DATA.orari[h]) : ''}</p>
+      <p class="sub">${esc(t.nome)}${DATA.orari[h] ? ' · ' + esc(fascia(DATA.orari[h])) : ''}</p>
       <div class="chips">` +
       cl.map(c => `<button data-c="${c}" class="${c === v && !libero ? 'on' : ''}">${c}</button>`).join('') +
       `<button data-a="altro" class="alt${libero ? ' on' : ''}">Altro…</button></div>`;
@@ -645,7 +807,7 @@ function editDocente(id) {
         cattedra: root.querySelector('#dc').value.trim()
       };
       if (nuovo) {
-        const n = Object.assign({ id: idUnico(slug(nome)), celle: {}, sost: {} }, campi);
+        const n = Object.assign({ id: idUnico(slug(nome)), celle: {}, sost: {}, manuale: true }, campi);
         DATA.docenti.push(n);
         schedaId = n.id; tab = 'colleghi';
       } else Object.assign(t, campi);
@@ -664,6 +826,7 @@ function eliminaDocente(id) {
     root => {
       root.querySelector('[data-a="no"]').onclick = chiudiTop;
       root.querySelector('[data-a="si"]').onclick = () => {
+        istantanea('prima di elimina ' + t.nome);
         DATA.docenti = DATA.docenti.filter(d => d.id !== id);
         if (schedaId === id) schedaId = null;
         normalizza(DATA); salva(); chiudiTop(); render(); toast('Docente eliminato');
@@ -723,7 +886,7 @@ function importaCSV(txt) {
     } else {
       DATA.docenti.push({
         id: idUnico(slug(nome)), nome, materia, cattedra,
-        ruolo: ruolo || ruoloDaMateria(materia), celle: {}, sost: {}
+        ruolo: ruolo || ruoloDaMateria(materia), celle: {}, sost: {}, manuale: true
       });
       agg++;
     }
@@ -746,6 +909,14 @@ function chiudiTop() { const r = $('#modalRoot'); if (r.lastElementChild) r.last
 function closeModal() { $('#modalRoot').innerHTML = ''; }
 
 /* ============ azioni impostazioni ============ */
+function ultimoBackup() {
+  let t = null; try { t = localStorage.getItem(LS_EXPORT); } catch (e) { }
+  return t ? 'ultimo ' + new Date(t).toLocaleDateString('it-IT') : 'mai fatto';
+}
+function vecchioBackup() {
+  let t = null; try { t = localStorage.getItem(LS_EXPORT); } catch (e) { }
+  return !t || (Date.now() - new Date(t).getTime()) > 30 * 864e5;
+}
 function download(nome, testo, tipo) {
   const b = new Blob([testo], { type: tipo || 'application/json' });
   const a = document.createElement('a');
@@ -794,22 +965,28 @@ async function azione(a) {
     toast('CSV esportato');
   }
   if (a === 'csvin') leggiFile('.csv,text/csv,text/plain', txt => {
-    try { importaCSV(txt); } catch (e) { toast('CSV non valido'); }
+    try { istantanea('prima di importa CSV'); importaCSV(txt); } catch (e) { toast('CSV non valido'); }
   });
   if (a === 'export') {
     download('orario-tasso-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(DATA, null, 1));
-    toast('Backup esportato');
+    try { localStorage.setItem(LS_EXPORT, new Date().toISOString()); } catch (e) { }
+    toast('Backup esportato'); viewImpostazioni();
   }
   if (a === 'import') leggiFile('.json,application/json', txt => {
     try {
       const d = JSON.parse(txt);
       if (!d.docenti) throw 0;
+      istantanea('prima di importa backup');
       DATA = d; normalizza(DATA); salva(); render(); toast('Dati importati');
     } catch (e) { toast('File non valido'); }
   });
   if (a === 'enc') {
     const box = window.ORARIO_ENC;
-    const p = await encryptObj(DATA, KEY);
+    const pub = clone(DATA);                     // diventa il nuovo orario di base per tutti i dispositivi
+    delete pub.man; delete pub.base; delete pub.baseIds;
+    pub.docenti.forEach(t => { delete t.manuale; });
+    pub.meta = Object.assign({}, pub.meta, { generato: new Date().toISOString(), fonte: 'app (modifiche pubblicate)' });
+    const p = await encryptObj(pub, KEY);
     const out = { v: 1, kdf: 'PBKDF2-SHA256', iter: box.iter, salt: box.salt, iv: p.iv, ct: p.ct };
     download('data-enc.js', 'window.ORARIO_ENC = ' + JSON.stringify(out) + ';\n', 'application/javascript');
     toast('data-enc.js esportato');
@@ -821,10 +998,12 @@ async function azione(a) {
       root => {
         root.querySelector('[data-a="no"]').onclick = chiudiTop;
         root.querySelector('[data-a="si"]').onclick = () => {
-          DATA = clone(ORIGINALE); normalizza(DATA); salva(); closeModal(); giorno = oggiOpp(); render(); toast('Orario ripristinato');
+          istantanea('prima di ripristina originale');
+          DATA = clone(ORIGINALE); DATA.base = baseId(ORIGINALE); normalizza(DATA); salva(); closeModal(); giorno = oggiOpp(); render(); toast('Orario ripristinato');
         };
       });
   }
+  if (a === 'versioni') versioniPrecedenti();
   if (a === 'lock') {
     localStorage.removeItem(LS_KEY); KEY = null; DATA = null;
     closeModal();

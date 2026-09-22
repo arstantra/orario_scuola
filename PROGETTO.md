@@ -17,7 +17,8 @@ compresenza**, e trovare al volo l'orario di un collega.
 - **Online:** https://orario.nuovadidattica.eu
 - **Repo:** https://github.com/arstantra/orario_scuola — pubblico, branch `main`
 - **Repo locale:** `...\Area_Istruzione\AA 2026 - 2027\040_Orario scolastico\orario_scuola\`
-- **Fuori dal repo,** nella cartella superiore: il tabellone `.xlsx` e `dati-originali.json`
+- **Fuori dal repo,** nella cartella superiore: `tabelloni/` (ogni Excel ricevuto, datato, mai sovrascritto),
+  `backup/` (backup JSON esportati) e `dati-originali.json`
 
 ## 2. Vincoli di progetto (da rispettare in ogni modifica)
 
@@ -45,6 +46,12 @@ Il repo è pubblico ma contiene l'orario di 44 docenti, quindi i dati stanno sol
   (`orario.tasso.data`). Con "ricorda su questo dispositivo" la chiave esportata sta in
   `orario.tasso.key`.
 - La passphrase non è nel codice e non va mai chiesta né scritta da nessuna parte.
+- `salva()` scrive anche `salt` e `iter` accanto al blob: se un giorno `data-enc.js` venisse rigenerato con
+  un salt diverso, all'inserimento della passphrase i dati locali si riaprono lo stesso. Se non si aprono,
+  `leggiLocale()` li mette in `orario.tasso.orfano` invece di sovrascriverli.
+- **Istantanee locali** in `orario.tasso.snap` (lista, ultime 14): copia del blob cifrato una volta al
+  giorno e prima di ogni azione distruttiva. *Impostazioni → Versioni precedenti*.
+- `orario.tasso.export` = data dell'ultimo *Esporta backup JSON* (riga arancione dopo 30 giorni).
 - `robots.txt` (Disallow) e `<meta name="robots" content="noindex, nofollow">` tengono il sito
   fuori dai motori di ricerca — e fanno anche sì che alcuni strumenti di fetch automatico non
   riescano a leggerlo: non è un errore.
@@ -58,7 +65,8 @@ app.js          tutta la logica (IIFE, 'use strict'): crypto, stato, render, mod
 sw.js           service worker, strategia stale-while-revalidate, const CACHE = 'orario-tasso-vN'
 manifest.json   PWA
 icons/          icon-192.png, icon-512.png, icon-192-maskable.png, icon-512-maskable.png
-cifra.html      strumento locale autonomo: JSON in chiaro + passphrase -> data-enc.js
+cifra.html      strumento locale autonomo: tabellone .xlsx (o JSON) + passphrase -> data-enc.js,
+                stesso salt del data-enc.js presente; apre anche vecchi data-enc.js
 data-enc.js     i dati cifrati
 CNAME           orario.nuovadidattica.eu
 robots.txt      Disallow: /
@@ -114,6 +122,14 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
   Segna le ore in cui quel docente è **da solo** in classe. `normalizza()` la crea vuota se manca,
   quindi i dati e i backup precedenti restano importabili.
 - `io` è l'`id` del docente mostrato in home (cambiabile da Impostazioni).
+- Campi solo locali (mai in `data-enc.js`): `base` (= `meta.generato` dell'orario da cui derivano i dati),
+  `baseIds` (docenti di quel tabellone), `man` (celle diverse dal tabellone, ricalcolate a ogni `salva()`),
+  `manuale: true` sui docenti aggiunti dall'app o da CSV.
+- **Nuovo tabellone = nuovo `meta.generato`** (timestamp ISO scritto da `cifra.html`). In `apri()`, se
+  `DATA.base` è diverso, `fondi()` prende la griglia e la cattedra dall'Excel e conserva fasce orarie,
+  intervalli, materia, ruolo, `io`, docenti manuali e sostituzioni sulle ore rimaste uguali. I docenti
+  usciti dal tabellone vengono tolti. Le celle in `man` riscritte dall'Excel si mostrano in un modale con
+  *Rimetti le mie*. Prima fa un'istantanea.
 - **Le compresenze non sono memorizzate:** `compresenze(classe, giorno, ora)` in `app.js` scorre
   tutti i docenti a ogni render. È il punto chiave del progetto — così restano corrette dopo
   qualunque modifica alle celle.
@@ -151,17 +167,20 @@ dispositivi: *Impostazioni → Esporta data-enc.js*, sostituire il file nel repo
 in `sw.js`, commit e push.
 
 **Rigenerare tutto da un nuovo tabellone .xlsx**
-Il JSON si ricava con uno script Python (openpyxl) secondo questa mappa, da verificare ogni volta
-perché il file della scuola può cambiare forma:
+Lo fa `cifra.html` (sezione 1), nel browser, senza Python: il blocco `// <core>` legge l'xlsx
+(unzip con `DecompressionStream`, XML con regex) secondo questa mappa, che si ricava da sola dal foglio:
 
-- foglio `vuoto`; riga 5 = numeri d'ora; riga 6 = intestazioni; docenti dalla riga 7 alla 50
-- colonna `B` = nome, colonna `C` = cattedra
-- giorni → colonne: LUN `D:I`, MAR `K:P`, MER `R:W`, GIO `Y:AD`, VEN `AF:AK`
-- le sigle degli altri plessi sono **spezzate lettera per lettera su celle consecutive**
-  (`BO|IAR|DO` → `BOIARDO`): vanno ricomposte per blocchi contigui, spezzando su `X`, e poi
-  mappate a etichetta leggibile (Boiardo, Baura, Dante, Ponte, De Pisis, ITI)
-- `P` ripetuta = Potenziamento, `UFF` = Ufficio, `Lab`/`lab` = Laboratorio, `X` = **ignoto**
-- il JSON in chiaro va nella cartella superiore, **mai** nel repo; poi `cifra.html`
+- foglio `vuoto` (o il primo); la riga con `ore` in colonna B dà i numeri d'ora, la riga sopra i giorni;
+  i docenti partono dalla riga dopo `DOCENTI` e finiscono alla prima riga con B vuota
+- colonna `B` = nome, colonna `C` = cattedra; materia = parole iniziali della cattedra fino a
+  `CORSO`/`CORSI`/`TUTTE` o a una sigla
+- le sigle degli altri plessi **spezzate su celle consecutive** (`BO|IAR|DO`) si ricompongono cercando il
+  nome più lungo noto (Boiardo, Baura, Dante, Ponte, De Pisis, ITI, Bachelet); le sconosciute vengono
+  ricomposte e segnalate
+- `P`/`POT` = Potenziamento, `UFF` = Ufficio, `Lab` = Laboratorio, `X` = **ignoto**
+- verificato: sul tabellone del 21-25 settembre riproduce `dati-originali.json` cella per cella
+- il `sw.js` serve `data-enc.js` **prima dalla rete** (4 s, poi cache): il nuovo orario arriva alla
+  prima apertura
 
 **Cambiare le fasce orarie**
 Tutto da *Impostazioni → Orario delle lezioni*: ogni riga ha inizio, fine e durata calcolata.
@@ -204,6 +223,10 @@ sincronizzazione litiga con `.git`, mettere OneDrive in pausa durante i push.
   Casula L2). Probabile refuso del tabellone, non corretto.
 - Le doppie presenze curricolari in generale (39 celle) sono quasi tutte normali affiancamenti di
   **Italiano L2** (Casula, Ori) o **tedesco** (Zen): l'app le mostra entrambe con il `+`.
+- **Copie di sicurezza (set 2026):** scelta semplice, niente Drive. Fonte di verità = tabelloni in
+  `tabelloni/`; storia datata = commit di `data-enc.js` su GitHub; errori = istantanee locali; perdita del
+  dispositivo = backup JSON manuale (le correzioni fatte a mano fra un tabellone e l'altro sono l'unica
+  cosa esposta).
 - **Nessuna sincronizzazione fra dispositivi:** le modifiche restano sul singolo apparecchio,
   si spostano con export/import JSON. Se un giorno servisse la sincronia vera servirebbe un
   backend, che è fuori dai vincoli attuali.

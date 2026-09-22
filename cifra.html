@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cifra dati — Orario T. Tasso</title>
+<meta name="robots" content="noindex, nofollow">
+<title>Nuovo orario — T. Tasso</title>
 <style>
-  :root{--ink:#15181d;--muted:#6b7280;--line:#e4e7ec;--accent:#1d4ed8;--bg:#f4f5f7;--card:#fff}
-  @media(prefers-color-scheme:dark){:root{--ink:#e9ebef;--muted:#9aa1ad;--line:#272b33;--accent:#6f9bff;--bg:#0f1115;--card:#171a20}}
+  :root{--ink:#15181d;--muted:#6b7280;--line:#e4e7ec;--accent:#1d4ed8;--bg:#f4f5f7;--card:#fff;--ok:#15803d;--ko:#c0392b;--warn:#b45309}
+  @media(prefers-color-scheme:dark){:root{--ink:#e9ebef;--muted:#9aa1ad;--line:#272b33;--accent:#6f9bff;--bg:#0f1115;--card:#171a20;--ok:#4ade80;--ko:#f87171;--warn:#f0b357}}
   body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px}
   main{max-width:620px;margin:0 auto}
   h1{font-size:1.35rem;margin:0 0 6px} p.sub{color:var(--muted);margin:0 0 22px;font-size:.92rem}
@@ -16,91 +17,344 @@
   input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
         background:var(--bg);color:var(--ink);margin-top:5px;font:inherit}
   button{background:var(--accent);color:#fff;border:0;border-radius:11px;padding:13px 18px;font:inherit;font-weight:600;cursor:pointer;width:100%}
-  button.sec{background:transparent;color:var(--accent);border:1px solid var(--accent)}
-  .msg{margin-top:12px;font-size:.9rem}.ok{color:#15803d}.ko{color:#c0392b}
+  button.sec{background:transparent;color:var(--accent);border:1px solid var(--accent);margin-top:8px}
+  .msg{margin-top:12px;font-size:.9rem;white-space:pre-line}.ok{color:var(--ok)}.ko{color:var(--ko)}.warn{color:var(--warn)}
+  .stato{font-size:.85rem;color:var(--muted);margin:0 0 14px}
   ol{padding-left:20px;color:var(--muted);font-size:.9rem;margin:0}
   li{margin-bottom:6px}
   code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:.85em}
+  [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <main>
-  <h1>Cifra i dati dell'orario</h1>
-  <p class="sub">Strumento locale: nulla viene inviato in rete. Genera <code>data-enc.js</code>, l'unico file dati da mettere su GitHub.</p>
+  <h1>Nuovo orario</h1>
+  <p class="sub">Strumento locale: nulla viene inviato in rete. Da qui nasce <code>data-enc.js</code>, l'unico file dati che va su GitHub.</p>
+  <p class="stato" id="stato"></p>
 
   <div class="card">
-    <h2>1 · Crea data-enc.js</h2>
-    <label>File JSON in chiaro (<code>dati-originali.json</code> o un backup esportato dall'app)
-      <input type="file" id="f" accept=".json,application/json"></label>
-    <label>Passphrase<input type="password" id="p1" autocomplete="new-password"></label>
-    <label>Ripeti passphrase<input type="password" id="p2" autocomplete="new-password"></label>
+    <h2>1 · Dal tabellone Excel della scuola</h2>
+    <label>Tabellone <code>.xlsx</code><input type="file" id="fx" accept=".xlsx"></label>
+    <label>Passphrase<input type="password" id="px" autocomplete="current-password"></label>
+    <label id="px2L" hidden>Ripeti passphrase<input type="password" id="px2" autocomplete="new-password"></label>
+    <button id="goX">Leggi il tabellone e crea data-enc.js</button>
+    <div class="msg" id="mX"></div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Da un file JSON in chiaro</h2>
+    <label>JSON (<code>dati-originali.json</code> o un backup esportato dall'app)<input type="file" id="f" accept=".json,application/json"></label>
+    <label>Passphrase<input type="password" id="p1" autocomplete="current-password"></label>
+    <label id="p2L" hidden>Ripeti passphrase<input type="password" id="p2" autocomplete="new-password"></label>
     <button id="go">Cifra e scarica data-enc.js</button>
     <div class="msg" id="m1"></div>
   </div>
 
   <div class="card">
-    <h2>2 · Verifica un data-enc.js</h2>
+    <h2>3 · Apri un data-enc.js (anche vecchio, dalla storia di GitHub)</h2>
     <label>File cifrato<input type="file" id="f2" accept=".js"></label>
     <label>Passphrase<input type="password" id="p3" autocomplete="off"></label>
     <button class="sec" id="go2">Prova ad aprire</button>
+    <button class="sec" id="go3">Apri e scarica il JSON in chiaro</button>
     <div class="msg" id="m2"></div>
   </div>
 
   <div class="card">
     <h2>Promemoria</h2>
     <ol>
-      <li>Metti <code>data-enc.js</code> nella cartella <code>app/</code>, accanto a <code>index.html</code>.</li>
-      <li><b>Non</b> committare <code>dati-originali.json</code> né i backup: sono già in <code>.gitignore</code>.</li>
-      <li>La passphrase non è recuperabile: se la perdi, rigeneri il file da capo dal JSON in chiaro.</li>
+      <li>Salva ogni tabellone ricevuto in <code>tabelloni/</code> (fuori dal repo) con la data davanti al nome. Non sovrascriverlo mai.</li>
+      <li>Metti il <code>data-enc.js</code> scaricato nella cartella del repo al posto del vecchio, alza <code>CACHE</code> in <code>sw.js</code>, commit e push.</li>
+      <li>Telefono e tablet lo adottano da soli alla prossima apertura, conservando fasce orarie, ruoli, docenti aggiunti e sostituzioni. Prima fanno una copia di sicurezza.</li>
+      <li>Usa sempre la stessa passphrase: così i dispositivi che la ricordano non la richiedono.</li>
+      <li><b>Mai</b> committare JSON in chiaro né i tabelloni: sono esclusi da <code>.gitignore</code>.</li>
     </ol>
   </div>
 </main>
 
+<script src="data-enc.js"></script>
 <script>
-const ITER = 310000;
+// <core> — lettura del tabellone (usata anche dai test)
+const TAB = (() => {
+  const CLS = /^[123][A-F]$/;
+  const LUOGHI = { BOIARDO: 'Boiardo', BAURA: 'Baura', DANTE: 'Dante', PONTE: 'Ponte', DEPISIS: 'De Pisis', ITI: 'ITI', BACHELET: 'Bachelet' };
+  const SINGOLI = { P: 'Potenziamento', POT: 'Potenziamento', UFF: 'Ufficio', LAB: 'Laboratorio' };
+  const GIORNI = ['LUN', 'MAR', 'MER', 'GIO', 'VEN'];
+  const norm = s => String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  const slug = s => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'docente';
+  const ent = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n)).replace(/&#x([0-9a-f]+);/gi, (m, n) => String.fromCharCode(parseInt(n, 16))).replace(/&amp;/g, '&');
+
+  async function unzip(buf) {
+    const u = new Uint8Array(buf), dv = new DataView(u.buffer, u.byteOffset, u.byteLength), out = {};
+    let e = u.length - 22;
+    while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+    if (e < 0) throw new Error('non è un file .xlsx');
+    let p = dv.getUint32(e + 16, true);
+    const n = dv.getUint16(e + 10, true);
+    for (let i = 0; i < n; i++) {
+      const met = dv.getUint16(p + 10, true), cs = dv.getUint32(p + 20, true);
+      const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      const lo = dv.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(u.subarray(p + 46, p + 46 + nl));
+      p += 46 + nl + xl + cl;
+      if (!/^xl\/(workbook\.xml|sharedStrings\.xml|_rels\/workbook\.xml\.rels|worksheets\/[^/]+\.xml)$/.test(name)) continue;
+      const d0 = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true);
+      const raw = u.subarray(d0, d0 + cs);
+      let data = raw;
+      if (met === 8) data = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      else if (met !== 0) throw new Error('compressione non supportata');
+      out[name] = new TextDecoder().decode(data);
+    }
+    return out;
+  }
+  const colN = s => { let n = 0; for (const ch of s) n = n * 26 + ch.charCodeAt(0) - 64; return n; };
+
+  async function leggiFoglio(buf) {
+    const z = await unzip(buf);
+    const ss = [];
+    (z['xl/sharedStrings.xml'] || '').replace(/<si>([\s\S]*?)<\/si>/g, (m, si) => {
+      let t = ''; si.replace(/<t[^>]*>([\s\S]*?)<\/t>/g, (m2, x) => { t += x; }); ss.push(ent(t)); return m;
+    });
+    const wb = z['xl/workbook.xml'] || '', rels = z['xl/_rels/workbook.xml.rels'] || '';
+    const fogli = []; wb.replace(/<sheet\b[^>]*>/g, m => {
+      const nm = (/name="([^"]*)"/.exec(m) || [])[1], id = (/r:id="([^"]*)"/.exec(m) || [])[1];
+      fogli.push({ nome: ent(nm || ''), id }); return m;
+    });
+    const f = fogli.find(x => norm(x.nome) === 'vuoto') || fogli[0];
+    if (!f) throw new Error('nessun foglio nel file');
+    let target = null;
+    rels.replace(/<Relationship\b[^>]*>/g, m => {
+      if ((/Id="([^"]*)"/.exec(m) || [])[1] === f.id) target = (/Target="([^"]*)"/.exec(m) || [])[1]; return m;
+    });
+    target = target ? 'xl/' + target.replace(/^\/?xl\//, '').replace(/^\//, '') : 'xl/worksheets/sheet1.xml';
+    const xml = z[target]; if (!xml) throw new Error('foglio non trovato');
+    const g = {};
+    xml.replace(/<c r="([A-Z]+)(\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g, (m, c, r, at, body) => {
+      if (!body) return m;
+      const t = (/\bt="([^"]*)"/.exec(at) || [])[1];
+      let v = null;
+      if (t === 'inlineStr') { v = ''; body.replace(/<t[^>]*>([\s\S]*?)<\/t>/g, (m2, x) => { v += x; }); v = ent(v); }
+      else { const vv = /<v>([\s\S]*?)<\/v>/.exec(body); if (vv) v = t === 's' ? ss[+vv[1]] : ent(vv[1]); }
+      if (v != null) (g[+r] = g[+r] || {})[colN(c)] = v;
+      return m;
+    });
+    return { get: (r, c) => { const x = (g[r] || {})[c]; return x == null ? '' : String(x).trim(); }, maxRow: Math.max(0, ...Object.keys(g).map(Number)), nomeFoglio: f.nome };
+  }
+
+  function materiaDa(catt) {
+    const out = [];
+    for (const tok of String(catt || '').toUpperCase().split(/\s+/)) {
+      if (!tok) continue;
+      if (/^(CORSO|CORSI|TUTTE)$/.test(tok) || !/^([A-ZÀ-Ü]+|L2)$/.test(tok)) break;
+      out.push(tok);
+    }
+    return out.join(' ');
+  }
+  function ruoloDa(m) {
+    const x = norm(m).toUpperCase();
+    if (x.indexOf('SOSTEGNO') >= 0) return 'sostegno';
+    if (x.indexOf('EDUCAT') >= 0) return 'educatore';
+    if (x.indexOf('L2') >= 0) return 'l2';
+    return 'curricolare';
+  }
+  const titolo = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+  /* una giornata: ricompone le sigle spezzate su celle consecutive */
+  function giornata(raw, strani) {
+    const t = raw.map(v => String(v || '').trim()), out = t.map(() => '');
+    let i = 0;
+    while (i < t.length) {
+      const v = t[i], V = v.toUpperCase();
+      if (!v) { i++; continue; }
+      if (CLS.test(V)) { out[i] = V; i++; continue; }
+      if (V === 'X') { out[i] = 'X'; i++; continue; }
+      let j = i; while (j < t.length && t[j] && !CLS.test(t[j].toUpperCase()) && t[j].toUpperCase() !== 'X') j++;
+      let k = i, ignoto = [];
+      const chiudi = () => { if (!ignoto.length) return; const lab = ignoto.length > 1 ? titolo(ignoto.map(x => t[x]).join('')) : t[ignoto[0]]; ignoto.forEach(x => { out[x] = lab; }); strani.add(lab); ignoto = []; };
+      while (k < j) {
+        let m = -1;
+        for (let e = j; e > k; e--) if (LUOGHI[t.slice(k, e).join('').toUpperCase().replace(/\s+/g, '')]) { m = e; break; }
+        if (m > 0) { chiudi(); const lab = LUOGHI[t.slice(k, m).join('').toUpperCase().replace(/\s+/g, '')]; for (let x = k; x < m; x++) out[x] = lab; k = m; continue; }
+        const s = SINGOLI[t[k].toUpperCase()];
+        if (s) { chiudi(); out[k] = s; } else ignoto.push(k);
+        k++;
+      }
+      chiudi();
+      i = j;
+    }
+    return out;
+  }
+
+  /* dal foglio al modello dati dell'app */
+  function converti(sh, base, nomeFile) {
+    let rOre = 0, rDoc = 0;
+    for (let r = 1; r <= Math.min(sh.maxRow, 30); r++) {
+      const b = norm(sh.get(r, 2));
+      if (b === 'ore' && !rOre) rOre = r;
+      if (b === 'docenti' && !rDoc) rDoc = r;
+    }
+    if (!rOre) throw new Error('non trovo la riga "ore" nella colonna B');
+    const gruppi = []; let cur = null;
+    for (let c = 3; c <= 120; c++) {
+      const v = sh.get(rOre, c);
+      if (/^\d+(\.0+)?$/.test(v)) { if (!cur) { cur = []; gruppi.push(cur); } cur.push(c); } else cur = null;
+    }
+    if (gruppi.length < 5) throw new Error('trovo ' + gruppi.length + ' giorni invece di 5 nella riga "ore"');
+    const giorni = gruppi.slice(0, 5).map((cols, i) => {
+      const h = norm(sh.get(rOre - 1, cols[0])).toUpperCase().slice(0, 3);
+      return { g: GIORNI.indexOf(h) >= 0 ? h : GIORNI[i], cols };
+    });
+    const nOre = Math.max(...giorni.map(x => x.cols.length));
+    const strani = new Set(), docenti = [], usati = {};
+    let r = (rDoc || rOre + 1) + 1;
+    for (; r <= sh.maxRow; r++) {
+      const nome = sh.get(r, 2).replace(/\s+/g, ' ');
+      if (!nome) { if (docenti.length) break; else continue; }
+      const cattedra = sh.get(r, 3);
+      let id = slug(nome); if (usati[id]) { let n = 2; while (usati[id + '-' + n]) n++; id += '-' + n; } usati[id] = 1;
+      const materia = materiaDa(cattedra);
+      const celle = {};
+      giorni.forEach(x => {
+        const v = giornata(x.cols.map(c => sh.get(r, c)), strani);
+        while (v.length < nOre) v.push('');
+        celle[x.g] = v;
+      });
+      docenti.push({ id, nome, cattedra, materia, ruolo: ruoloDa(materia), celle });
+    }
+    if (!docenti.length) throw new Error('nessun docente trovato sotto la riga "DOCENTI"');
+    base = base || {};
+    const io = docenti.some(t => t.id === base.io) ? base.io : (docenti.find(t => t.id === 'poletti-andrea') || docenti[0]).id;
+    const data = {
+      meta: Object.assign({ scuola: 'IC "C. Govoni" — Sec. I grado "T. Tasso"', anno: '2026/2027', nota: 'Orario provvisorio' },
+        base.meta || {}, { fonte: nomeFile || '', generato: new Date().toISOString() }),
+      giorni: GIORNI.slice(),
+      giorniLunghi: base.giorniLunghi || { LUN: 'Lunedì', MAR: 'Martedì', MER: 'Mercoledì', GIO: 'Giovedì', VEN: 'Venerdì' },
+      orari: base.orari && base.orari.length ? base.orari : ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00'].slice(0, nOre),
+      io, docenti
+    };
+    if (base.pause) data.pause = base.pause;
+    return { data, strani: [...strani], nOre };
+  }
+
+  /* cosa cambia rispetto all'orario attuale */
+  function confronta(prima, dopo) {
+    if (!prima) return null;
+    const pm = {}; prima.docenti.forEach(t => { pm[t.id] = t; });
+    const nuovi = [], celle = [];
+    dopo.docenti.forEach(t => {
+      const o = pm[t.id]; if (!o) { nuovi.push(t.nome); return; }
+      delete pm[t.id];
+      Object.keys(t.celle).forEach(g => t.celle[g].forEach((v, h) => { if ((v || '') !== ((o.celle[g] || [])[h] || '')) celle.push({ nome: t.nome, g, h, da: (o.celle[g] || [])[h] || '', a: v }); }));
+    });
+    return { nuovi, usciti: Object.values(pm).map(t => t.nome), celle };
+  }
+  return { leggiFoglio, converti, confronta, giornata, materiaDa };
+})();
+// </core>
+
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64e = b => { const a = new Uint8Array(b); let s = ''; for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s); };
 const b64d = s => { const t = atob(s), a = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) a[i] = t.charCodeAt(i); return a; };
-async function key(pass, salt) {
+const BOX = window.ORARIO_ENC || null;
+const ITER = (BOX && BOX.iter) || 310000;
+const $ = id => document.getElementById(id);
+async function key(pass, salt, iter) {
   const km = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: ITER, hash: 'SHA-256' },
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter || ITER, hash: 'SHA-256' },
     km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
-function say(id, txt, ok) { const e = document.getElementById(id); e.textContent = txt; e.className = 'msg ' + (ok ? 'ok' : 'ko'); }
-const read = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(f); });
+async function apriBox(box, pass) {
+  const k = await key(pass, b64d(box.salt), box.iter);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(box.iv) }, k, b64d(box.ct));
+  return { k, obj: JSON.parse(dec.decode(pt)) };
+}
+function say(id, txt, cls) { const e = $(id); e.textContent = txt; e.className = 'msg ' + (cls || 'ko'); }
+const readText = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(f); });
+const readBuf = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsArrayBuffer(f); });
+function scarica(nome, testo, tipo) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([testo], { type: tipo }));
+  a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+}
 
-document.getElementById('go').onclick = async () => {
-  const f = document.getElementById('f').files[0];
-  const p1 = document.getElementById('p1').value, p2 = document.getElementById('p2').value;
-  if (!f) return say('m1', 'Scegli il file JSON.');
-  if (p1.length < 6) return say('m1', 'Passphrase troppo corta (almeno 6 caratteri).');
-  if (p1 !== p2) return say('m1', 'Le due passphrase non coincidono.');
+/* stessa passphrase e stesso salt dell'orario attuale: i dispositivi che la ricordano non la richiedono */
+async function chiave(passId, pass2Id) {
+  const pass = $(passId).value;
+  if (BOX) {
+    try { return Object.assign({ salt: BOX.salt }, await apriBox(BOX, pass)); }
+    catch (e) { throw new Error('Passphrase errata: non apre il data-enc.js attuale. Usa la stessa di sempre.'); }
+  }
+  if (pass.length < 6) throw new Error('Passphrase troppo corta (almeno 6 caratteri).');
+  if (pass !== $(pass2Id).value) throw new Error('Le due passphrase non coincidono.');
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return { salt: b64e(salt), k: await key(pass, salt), obj: null };
+}
+async function cifra(obj, k, salt) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(obj)));
+  return 'window.ORARIO_ENC = ' + JSON.stringify({ v: 1, kdf: 'PBKDF2-SHA256', iter: ITER, salt, iv: b64e(iv), ct: b64e(ct) }) + ';\n';
+}
+
+if (BOX) $('stato').textContent = 'Trovato il data-enc.js attuale: il nuovo file userà la stessa passphrase.';
+else { $('stato').textContent = 'Nessun data-enc.js accanto a questa pagina: ne creerai uno nuovo con una passphrase nuova.'; $('px2L').hidden = false; $('p2L').hidden = false; }
+
+$('goX').onclick = async () => {
+  const f = $('fx').files[0];
+  if (!f) return say('mX', 'Scegli il file .xlsx.');
+  say('mX', 'Leggo…', 'muted');
   try {
-    const obj = JSON.parse(await read(f));
-    if (!obj.docenti) return say('m1', 'Il JSON non contiene "docenti".');
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const k = await key(p1, salt);
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, enc.encode(JSON.stringify(obj)));
-    const out = { v: 1, kdf: 'PBKDF2-SHA256', iter: ITER, salt: b64e(salt), iv: b64e(iv), ct: b64e(ct) };
-    const blob = new Blob(['window.ORARIO_ENC = ' + JSON.stringify(out) + ';\n'], { type: 'application/javascript' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'data-enc.js';
-    document.body.appendChild(a); a.click(); a.remove();
-    say('m1', 'Fatto: ' + obj.docenti.length + ' docenti cifrati. Sposta data-enc.js nella cartella app/.', true);
-  } catch (e) { say('m1', 'Errore: ' + e.message); }
+    const c = await chiave('px', 'px2');
+    const sh = await TAB.leggiFoglio(await readBuf(f));
+    const r = TAB.converti(sh, c.obj, f.name);
+    const d = TAB.confronta(c.obj, r.data);
+    scarica('data-enc.js', await cifra(r.data, c.k, c.salt), 'application/javascript');
+    let txt = `Fatto: ${r.data.docenti.length} docenti, ${r.nOre} ore al giorno. data-enc.js scaricato.`;
+    if (d) {
+      txt += `\nRispetto all'orario attuale: ${d.celle.length} celle cambiate`;
+      if (d.nuovi.length) txt += `, nuovi: ${d.nuovi.join(', ')}`;
+      if (d.usciti.length) txt += `, non più presenti: ${d.usciti.join(', ')}`;
+      txt += '.';
+      const io = r.data.docenti.find(t => t.id === r.data.io);
+      const mie = d.celle.filter(x => io && x.nome === io.nome);
+      if (mie.length) txt += `\nNel tuo orario: ` + mie.map(x => `${x.g} ${x.h + 1}ª ${x.da || '—'} → ${x.a || '—'}`).join(' · ');
+    }
+    if (r.strani.length) txt += `\nSigle non riconosciute, lasciate così: ${r.strani.join(', ')}.`;
+    say('mX', txt, r.strani.length ? 'warn' : 'ok');
+  } catch (e) { say('mX', e.message || String(e)); }
 };
 
-document.getElementById('go2').onclick = async () => {
-  const f = document.getElementById('f2').files[0], p = document.getElementById('p3').value;
-  if (!f) return say('m2', 'Scegli il file data-enc.js.');
+$('go').onclick = async () => {
+  const f = $('f').files[0];
+  if (!f) return say('m1', 'Scegli il file JSON.');
   try {
-    const txt = await read(f);
-    const box = JSON.parse(txt.replace(/^[^{]*/, '').replace(/;\s*$/, ''));
-    const k = await key(p, b64d(box.salt));
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(box.iv) }, k, b64d(box.ct));
-    const obj = JSON.parse(dec.decode(pt));
-    say('m2', 'Passphrase corretta: ' + obj.docenti.length + ' docenti, anno ' + (obj.meta ? obj.meta.anno : '?') + '.', true);
-  } catch (e) { say('m2', 'Non si apre: passphrase errata o file danneggiato.'); }
+    const obj = JSON.parse(await readText(f));
+    if (!obj.docenti) return say('m1', 'Il JSON non contiene "docenti".');
+    const c = await chiave('p1', 'p2');
+    delete obj.man; delete obj.base; delete obj.baseIds;
+    obj.meta = Object.assign({}, obj.meta, { generato: new Date().toISOString() });
+    scarica('data-enc.js', await cifra(obj, c.k, c.salt), 'application/javascript');
+    say('m1', 'Fatto: ' + obj.docenti.length + ' docenti cifrati. data-enc.js scaricato.', 'ok');
+  } catch (e) { say('m1', e.message || String(e)); }
+};
+
+async function apriFile() {
+  const f = $('f2').files[0];
+  if (!f) throw new Error('Scegli il file data-enc.js.');
+  const txt = await readText(f);
+  const box = JSON.parse(txt.replace(/^[^{]*/, '').replace(/;\s*$/, ''));
+  try { return (await apriBox(box, $('p3').value)).obj; }
+  catch (e) { throw new Error('Non si apre: passphrase errata o file danneggiato.'); }
+}
+$('go2').onclick = async () => {
+  try { const o = await apriFile(); say('m2', 'Passphrase corretta: ' + o.docenti.length + ' docenti, generato ' + ((o.meta && o.meta.generato) || '?') + '.', 'ok'); }
+  catch (e) { say('m2', e.message); }
+};
+$('go3').onclick = async () => {
+  try {
+    const o = await apriFile();
+    const quando = String((o.meta && o.meta.generato) || 'senza-data').slice(0, 10);
+    scarica('orario-tasso-' + quando + '.json', JSON.stringify(o, null, 1), 'application/json');
+    say('m2', 'JSON in chiaro scaricato: tienilo fuori dal repo.', 'ok');
+  } catch (e) { say('m2', e.message); }
 };
 </script>
 </body>
