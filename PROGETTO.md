@@ -65,6 +65,7 @@ app.js          tutta la logica (IIFE, 'use strict'): crypto, stato, render, mod
 sw.js           service worker, strategia stale-while-revalidate, const CACHE = 'orario-tasso-vN'
 manifest.json   PWA
 icons/          icon-192.png, icon-512.png, icon-192-maskable.png, icon-512-maskable.png
+tabellone.js    lettura tabellone .xlsx/.csv -> modello dati (usato da app e cifra.html)
 cifra.html      strumento locale autonomo: tabellone .xlsx (o JSON) + passphrase -> data-enc.js,
                 stesso salt del data-enc.js presente; apre anche vecchi data-enc.js
 data-enc.js     i dati cifrati
@@ -166,7 +167,7 @@ Sezioni, nell'ordine: utilità → crypto → stato → avvio/sblocco → query 
 (`viewHome`, `viewColleghi`, `viewScheda`, `viewClassi` + `oraClasse`, `membroCdc`, `aggiungiCdc`,
 `viewImpostazioni`) → modifica ora
 (`editCella`, `pickCollega`) → anagrafica docenti (`editDocente`, `eliminaDocente`) →
-CSV colleghi (`csvDocenti`, `leggiCSV`, `importaCSV`) → modali → azioni impostazioni →
+CSV colleghi (`csvDocenti`) → nuovo orario (`sostituisci`, `caricaOrario`, `azzera`) → modali → azioni impostazioni →
 navigazione → service worker.
 
 - Stato globale: `KEY` (CryptoKey), `ORIGINALE` (dati da `data-enc.js`), `DATA` (dati correnti),
@@ -213,13 +214,22 @@ tutto in fila dall'inizio della 1ª ora mantenendo le durate: serve quando gli o
 sovrappongono (l'app lo segnala). **Eliminare un'ora cancella quella colonna per tutti i
 docenti** e fa scalare le successive, comprese le sostituzioni: c'è una conferma.
 
-**Caricare o correggere l'elenco dei colleghi**
-Da *Impostazioni → Colleghi*: si aggiunge un docente a mano, oppure si importa un CSV
-(`nome · materia · ruolo · cattedra`, separatore `;` o `,`, intestazione facoltativa).
-L'import **aggiorna chi c'è già** — confronto sul nome normalizzato — **aggiunge i nuovi e non
-rimuove nessuno**; i nuovi nascono con la griglia vuota. `ruolo` vuoto viene dedotto dalla materia.
-Da *Esporta elenco in CSV* si ottiene il file già nel formato giusto, da usare come modello.
-Il singolo docente si modifica o si elimina dalla sua scheda in *Colleghi*.
+**Caricare un nuovo orario della scuola (v1.5) — sostituisce, non somma**
+La scuola manda sempre un file completo, che deve prendere il posto del precedente. Da
+*Impostazioni → Orario della scuola → Carica nuovo orario* si sceglie il **CSV o l'.xlsx** del tabellone.
+`tabellone.js` (condiviso con `cifra.html`) riconosce da solo il formato: xlsx; CSV del tabellone
+(stessa mappa del foglio Excel: riga `ore`, `DOCENTI`, colonne B/C…; separatore `;` `,` o tab; UTF-8 o
+ANSI/windows-1252 come lo salva Excel italiano); in mancanza, elenco semplice `nome · materia · ruolo · cattedra`
+(senza ore). Un modale mostra formato, numero di docenti e di ore, sigle strane, e chiede conferma.
+`sostituisci()` **toglie tutti i colleghi e le ore** e mette quelli del file. Restano: fasce orarie
+(aggiunge ore se il file ne ha di più), intervalli, `io` (cercato per nome), eccezioni del CdC dei docenti
+ancora presenti, sostituzioni sulle ore rimaste identiche. Scrive `meta.fonte` e `meta.caricato`. Prima fa
+un'istantanea. `DATA.base` non cambia, quindi alla riapertura non parte `fondi()`.
+*Azzera colleghi e ore* lascia solo `io` con la griglia vuota.
+Le modifiche restano sul dispositivo: per portarle ovunque, *Esporta data-enc.js* e push.
+Il vecchio import CSV "a somma" (aggiornava e aggiungeva senza togliere nessuno) è stato eliminato.
+Il singolo docente si aggiunge a mano, si modifica o si elimina dalla sua scheda in *Colleghi*;
+*Esporta elenco in CSV* resta.
 
 **Aggiungere un campo ai dati**
 Aggiornare lo script di generazione, `normalizza()` in `app.js` (per i dati già salvati sui

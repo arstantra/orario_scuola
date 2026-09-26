@@ -1,4 +1,4 @@
-/* Orario T. Tasso — app.js  (v1.4)
+/* Orario T. Tasso — app.js  (v1.5)
    Vanilla JS, nessuna dipendenza. Dati cifrati AES-GCM, chiave da passphrase (PBKDF2).
    I dati modificati restano in localStorage, cifrati con la stessa chiave. */
 (function () {
@@ -806,6 +806,13 @@ function viewImpostazioni() {
   let h = '<div class="sec">Docente principale</div><div class="rows"><div class="row"><span class="lbl">Home mostra</span>' +
     '<select id="selIo">' + DATA.docenti.map(t => `<option value="${t.id}" ${t.id === DATA.io ? 'selected' : ''}>${esc(t.nome)}</option>`).join('') + '</select></div></div>';
 
+  const fonte = m.fonte ? esc(m.fonte) + (m.caricato ? ' · ' + esc(dataOra(m.caricato)) : '') : '';
+  h += '<div class="sec">Orario della scuola</div><div class="rows">' +
+    '<button class="row" data-act="carica"><span class="lbl">Carica nuovo orario<br><span class="muted small">CSV o Excel della scuola: sostituisce tutto</span></span><span class="val">›</span></button>' +
+    (fonte ? `<div class="row"><span class="lbl">Ultimo file</span><span class="val small">${fonte}</span></div>` : '') +
+    '<button class="row danger" data-act="azzera"><span class="lbl">Azzera colleghi e ore</span><span class="val">›</span></button></div>' +
+    '<p class="hint">Il nuovo file prende il posto di tutti i colleghi e di tutte le ore: niente si somma al vecchio.<br>Restano le fasce orarie, gli intervalli e il docente principale. Prima viene salvata una copia in «Versioni precedenti».</p>';
+
   h += '<div class="sec">Orario delle lezioni</div><div class="rows"><div class="slots">' + slotsHTML() + '</div></div>';
   if (incoerente()) h += '<p class="hint warn">Qualche orario manca o si sovrappone al successivo.</p>';
   h += '<div class="rows" style="margin-top:8px">' +
@@ -816,9 +823,8 @@ function viewImpostazioni() {
 
   h += '<div class="sec">Colleghi</div><div class="rows">' +
     '<button class="row" data-act="nuovo"><span class="lbl">Aggiungi docente</span><span class="val">›</span></button>' +
-    '<button class="row" data-act="csvin"><span class="lbl">Importa elenco da CSV</span><span class="val">›</span></button>' +
     '<button class="row" data-act="csvout"><span class="lbl">Esporta elenco in CSV</span><span class="val">›</span></button>' +
-    '</div><p class="hint">Il CSV aggiorna chi c\'è già e aggiunge i nuovi: nessuno viene rimosso.<br>Colonne: nome · materia · ruolo · cattedra.</p>';
+    '</div><p class="hint">Per cambiare l\'elenco intero usa «Carica nuovo orario» qui sopra.</p>';
 
   h += '<div class="sec">Dati</div><div class="rows">' +
     `<button class="row" data-act="export"><span class="lbl">Esporta backup JSON</span><span class="val${vecchioBackup() ? ' warn' : ''}">${esc(ultimoBackup())} ›</span></button>` +
@@ -836,8 +842,8 @@ function viewImpostazioni() {
   h += `<div class="sec">Info</div><div class="rows">
     <div class="row"><span class="lbl">Scuola</span><span class="val">${esc(m.scuola || '')}</span></div>
     <div class="row"><span class="lbl">Anno</span><span class="val">${esc(m.anno || '')}</span></div>
-    <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(dataGen(m.generato))}</span></div>
-    <div class="row"><span class="lbl">Versione app</span><span class="val">1.4</span></div></div>`;
+    <div class="row"><span class="lbl">Orario pubblicato il</span><span class="val">${esc(dataGen(m.generato))}</span></div>
+    <div class="row"><span class="lbl">Versione app</span><span class="val">1.5</span></div></div>`;
   h += '<p class="hint">Orario provvisorio: le modifiche fatte qui restano su questo dispositivo.</p>';
   $('#view').innerHTML = h;
 
@@ -1063,58 +1069,90 @@ function csvDocenti() {
   return righe.map(r => r.map(q).join(';')).join('\r\n');
 }
 
-function leggiCSV(txt) {
-  txt = String(txt).replace(/^﻿/, '');
-  const prima = txt.split(/\r?\n/)[0] || '';
-  const sep = (prima.split(';').length >= prima.split(',').length) ? ';' : ',';
-  const out = []; let riga = [], campo = '', q = false;
-  for (let i = 0; i < txt.length; i++) {
-    const ch = txt[i];
-    if (q) {
-      if (ch === '"') { if (txt[i + 1] === '"') { campo += '"'; i++; } else q = false; }
-      else campo += ch;
-    } else if (ch === '"') q = true;
-    else if (ch === sep) { riga.push(campo); campo = ''; }
-    else if (ch === '\n') { riga.push(campo); out.push(riga); riga = []; campo = ''; }
-    else if (ch !== '\r') campo += ch;
+/* ============ nuovo orario: sostituzione completa ============ */
+/* Il file della scuola è sempre completo: prende il posto di colleghi e ore.
+   Restano fasce orarie, intervalli, "io" (cercato per nome) e le eccezioni del
+   consiglio di classe dei docenti che ci sono ancora; le sostituzioni restano
+   solo sulle ore rimaste identiche. */
+function sostituisci(r, nomeFile) {
+  const vecchi = DATA.docenti, ioVecchio = io();
+  const trova = n => vecchi.find(t => norm(t.nome) === norm(n.nome));
+  while (DATA.orari.length < r.nOre) {                       // il file ha più ore di quelle impostate
+    const ult = DATA.orari[DATA.orari.length - 1], f = mins(ult && ult.a);
+    DATA.orari.push({ da: f == null ? '' : hhmm(f), a: f == null ? '' : hhmm(f + 55) });
   }
-  if (campo !== '' || riga.length) { riga.push(campo); out.push(riga); }
-  return out.filter(r => r.some(c => c.trim()));
+  const ids = {};
+  DATA.docenti = r.docenti.map(n => {
+    const t = { id: n.id, nome: n.nome, cattedra: n.cattedra || '', materia: n.materia || '', ruolo: n.ruolo, celle: clone(n.celle || {}), sost: {} };
+    const o = trova(n);
+    if (o) Object.keys(o.sost || {}).forEach(k => {
+      const q = k.split('|'), h = +q[1];
+      if (((o.celle[q[0]] || [])[h] || '') !== '' && ((o.celle[q[0]] || [])[h] || '') === ((t.celle[q[0]] || [])[h] || '')) t.sost[k] = 1;
+    });
+    ids[t.id] = 1;
+    return t;
+  });
+  const nuovoIo = ioVecchio && DATA.docenti.find(t => norm(t.nome) === norm(ioVecchio.nome));
+  DATA.io = nuovoIo ? nuovoIo.id : ((DATA.docenti.find(t => t.id === 'poletti-andrea') || DATA.docenti[0] || {}).id || '');
+  Object.keys(DATA.classi || {}).forEach(c => {
+    const x = DATA.classi[c];
+    if (x.coord && !ids[x.coord]) x.coord = '';
+    x.extra = x.extra.filter(id => ids[id]); x.esclusi = x.esclusi.filter(id => ids[id]);
+  });
+  DATA.baseIds = DATA.docenti.map(t => t.id);
+  DATA.meta = Object.assign({}, DATA.meta, { fonte: nomeFile, caricato: new Date().toISOString() });
+  normalizza(DATA);
 }
 
-function importaCSV(txt) {
-  const rows = leggiCSV(txt);
-  if (!rows.length) return toast('CSV vuoto');
-  let idx = { nome: 0, materia: 1, ruolo: 2, cattedra: 3 };
-  const head = rows[0].map(c => norm(c));
-  if (head.indexOf('nome') >= 0) {
-    idx = { nome: head.indexOf('nome'), materia: head.indexOf('materia'), ruolo: head.indexOf('ruolo'), cattedra: head.indexOf('cattedra') };
-    rows.shift();
-  }
-  const val = (r, i) => (i >= 0 && r[i] != null) ? String(r[i]).trim() : '';
-  let agg = 0, upd = 0;
-  rows.forEach(r => {
-    const nome = val(r, idx.nome); if (!nome) return;
-    const materia = val(r, idx.materia), cattedra = val(r, idx.cattedra);
-    let ruolo = norm(val(r, idx.ruolo)).replace('educatrice', 'educatore').replace('italiano l2', 'l2');
-    if (!RUOLI[ruolo]) ruolo = '';
-    const ex = DATA.docenti.find(t => norm(t.nome) === norm(nome));
-    if (ex) {
-      if (materia) ex.materia = materia;
-      if (cattedra) ex.cattedra = cattedra;
-      ex.ruolo = ruolo || ruoloDaMateria(ex.materia);
-      upd++;
-    } else {
-      DATA.docenti.push({
-        id: idUnico(slug(nome)), nome, materia, cattedra,
-        ruolo: ruolo || ruoloDaMateria(materia), celle: {}, sost: {}, manuale: true
+function oreDi(docenti) {
+  let n = 0;
+  docenti.forEach(t => Object.keys(t.celle || {}).forEach(g => (t.celle[g] || []).forEach(v => { if (v) n++; })));
+  return n;
+}
+
+function caricaOrario() {
+  leggiFile('.csv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', async (buf, nome) => {
+    let r;
+    try { r = await TAB.leggiFile(buf, nome, { io: DATA.io }); }
+    catch (e) { return toast('File non riconosciuto: ' + (e && e.message ? e.message : 'formato non valido')); }
+    const ore = oreDi(r.docenti), ioN = io() && r.docenti.find(t => norm(t.nome) === norm(io().nome));
+    const avvisi = [];
+    if (!ore) avvisi.push('Nel file non ci sono ore: tutti i colleghi resteranno con la griglia vuota.');
+    if (io() && !ioN) avvisi.push(`«${esc(io().nome)}» non è nel file: in home andrà ${esc(r.docenti[0].nome)} (si cambia da Impostazioni).`);
+    if (r.strani && r.strani.length) avvisi.push('Sigle non riconosciute, lasciate così: ' + r.strani.map(esc).join(', ') + '.');
+    openModal(`<h3>Sostituire l'orario?</h3>
+      <p class="sub"><b>${esc(nome)}</b><br>${esc(r.formato)} · ${r.docenti.length} docenti · ${ore} ore in griglia</p>
+      <p class="sub">Tutti i ${DATA.docenti.length} colleghi attuali e le loro ore vengono tolti e sostituiti da quelli del file. Restano fasce orarie e intervalli. Prima si salva una copia.</p>
+      ${avvisi.length ? '<ul class="perse">' + avvisi.map(x => '<li>' + x + '</li>').join('') + '</ul>' : ''}
+      <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary">Sostituisci</button></div>`,
+      root => {
+        root.querySelector('[data-a="no"]').onclick = chiudiTop;
+        root.querySelector('[data-a="si"]').onclick = async () => {
+          istantanea('prima di caricare ' + nome);
+          sostituisci(r, nome);
+          await salva(); closeModal(); schedaId = null; classeSel = null; giorno = oggiOpp(); render();
+          toast('Orario sostituito: ' + DATA.docenti.length + ' docenti');
+        };
       });
-      agg++;
-    }
-  });
-  DATA.docenti.sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
-  normalizza(DATA); salva(); render();
-  toast(agg + ' aggiunti · ' + upd + ' aggiornati');
+  }, true);
+}
+
+function azzera() {
+  const me = io();
+  openModal(`<h3>Azzerare colleghi e ore?</h3>
+    <p class="sub">Vengono tolti tutti i colleghi e svuotate tutte le ore${me ? ', anche le tue: resta solo «' + esc(me.nome) + '» con la griglia vuota' : ''}. Fasce orarie e intervalli restano. Prima si salva una copia in «Versioni precedenti».</p>
+    <div class="acts"><button data-a="no">Annulla</button><button data-a="si" class="primary del">Azzera</button></div>`,
+    root => {
+      root.querySelector('[data-a="no"]').onclick = chiudiTop;
+      root.querySelector('[data-a="si"]').onclick = async () => {
+        istantanea('prima di azzera');
+        DATA.docenti = me ? [{ id: me.id, nome: me.nome, cattedra: me.cattedra || '', materia: me.materia || '', ruolo: me.ruolo, celle: {}, sost: {} }] : [];
+        DATA.classi = {}; DATA.baseIds = [];
+        DATA.meta = Object.assign({}, DATA.meta, { fonte: '', caricato: '' });
+        normalizza(DATA); await salva(); closeModal(); schedaId = null; classeSel = null; render();
+        toast('Colleghi e ore azzerati');
+      };
+    });
 }
 
 /* ============ modali ============ */
@@ -1145,13 +1183,13 @@ function download(nome, testo, tipo) {
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
-function leggiFile(accept, cb) {
+function leggiFile(accept, cb, binario) {
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept;
   inp.onchange = () => {
     const f = inp.files[0]; if (!f) return;
     const fr = new FileReader();
-    fr.onload = () => cb(fr.result);
-    fr.readAsText(f);
+    fr.onload = () => cb(fr.result, f.name);
+    if (binario) fr.readAsArrayBuffer(f); else fr.readAsText(f);
   };
   inp.click();
 }
@@ -1185,9 +1223,8 @@ async function azione(a) {
     download('colleghi-' + new Date().toISOString().slice(0, 10) + '.csv', csvDocenti(), 'text/csv');
     toast('CSV esportato');
   }
-  if (a === 'csvin') leggiFile('.csv,text/csv,text/plain', txt => {
-    try { istantanea('prima di importa CSV'); importaCSV(txt); } catch (e) { toast('CSV non valido'); }
-  });
+  if (a === 'carica') caricaOrario();
+  if (a === 'azzera') azzera();
   if (a === 'export') {
     download('orario-tasso-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(DATA, null, 1));
     try { localStorage.setItem(LS_EXPORT, new Date().toISOString()); } catch (e) { }

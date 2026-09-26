@@ -56,7 +56,7 @@ anche preso dalla storia di GitHub, e se ne scarica il JSON in chiaro.
 ## Copie di sicurezza
 
 - **Sul dispositivo, automatiche:** *Impostazioni → Versioni precedenti*. Una al giorno più una prima di
-  ogni azione che cancella (ripristina, importa JSON o CSV, elimina ora, elimina docente, nuovo orario,
+  ogni azione che cancella (ripristina, importa JSON, carica nuovo orario, azzera, elimina ora, elimina docente, nuovo orario,
   ripristino). Si tengono le ultime 14.
 - **Fuori dal dispositivo:** *Esporta backup JSON* (la riga dice la data dell'ultimo; diventa arancione
   dopo 30 giorni). Il file va in `../backup/`.
