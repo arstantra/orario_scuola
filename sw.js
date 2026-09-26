@@ -1,6 +1,6 @@
 /* Service worker — cache degli asset per il funzionamento offline.
    Strategia: stale-while-revalidate (parte subito dalla cache, aggiorna in background). */
-const CACHE = 'orario-tasso-v5';
+const CACHE = 'orario-tasso-v6';
 const ASSETS = [
   './',
   'index.html',

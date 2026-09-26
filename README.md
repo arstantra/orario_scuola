@@ -46,7 +46,7 @@ Il tabellone della scuola è la fonte di verità della griglia.
 3. Sposta il `data-enc.js` scaricato qui al posto del vecchio, alza `CACHE` in `sw.js`, commit e push.
 4. Telefono e tablet adottano il nuovo orario da soli alla prima apertura, senza chiedere la passphrase.
    La griglia arriva dall'Excel; restano **fasce orarie, intervalli, materia e ruolo, "io", docenti
-   aggiunti a mano, sostituzioni sulle ore rimaste uguali**. Se l'Excel riscrive celle modificate a mano,
+   aggiunti a mano, sostituzioni sulle ore rimaste uguali, coordinatori ed eccezioni dei consigli di classe**. Se l'Excel riscrive celle modificate a mano,
    l'app le elenca e offre *Rimetti le mie*. Prima di tutto fa una copia di sicurezza.
 
 `cifra.html` riusa sempre il salt del `data-enc.js` presente: per questo la passphrase deve restare
@@ -80,6 +80,10 @@ anche preso dalla storia di GitHub, e se ne scarica il JSON in chiaro.
 - **Edge su Windows:** icona **⋯** nella barra → *App* → *Installa questo sito come app*.
 
 ## Note d'uso
+
+**Classi** (v1.4): quadro orario settimanale di ogni classe (le proprie in cima) e consiglio di classe
+ricavato dall'orario, con ore settimanali per docente. Si può segnare il coordinatore e aggiungere o togliere
+a mano un docente dal consiglio senza toccare l'orario.
 
 Le modifiche alle celle restano nel `localStorage` del singolo dispositivo e non si sincronizzano
 fra telefono e tablet: per spostarle si usa *Esporta backup JSON* e *Importa backup JSON*. Per cambiare

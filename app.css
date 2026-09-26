@@ -196,3 +196,24 @@ button{background:none;border:0;cursor:pointer}
 .perse{margin:0 0 14px;padding-left:18px;font-size:.86rem;max-height:40vh;overflow:auto}
 .perse li{margin-bottom:5px}
 .sheet .rows{margin-bottom:12px;max-height:55vh;overflow:auto}
+
+/* v1.4 — classi e consiglio di classe */
+.chips.kl{margin-bottom:6px}
+.chips.kl button{min-width:48px;padding:8px 11px}
+.chips.kl button.coord::after{content:"★";margin-left:4px;font-size:.75em}
+.altre{margin:8px 0 12px}
+.altre summary{font-size:.74rem;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);cursor:pointer;padding:4px 0 8px;list-style:none}
+.altre summary::-webkit-details-marker{display:none}
+.altre summary::after{content:" ▾"}
+.altre[open] summary::after{content:" ▴"}
+.khead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.coordtag{font-size:.72rem;color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:2px 7px;white-space:nowrap}
+.kgrid .cell{position:relative;min-height:48px;padding:3px 2px}
+.kgrid .cell b{font-size:.74rem;line-height:1.15;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kgrid .cell small{font-size:.58rem;-webkit-line-clamp:2}
+.kgrid .cell.has small{color:var(--ink);opacity:.7}
+.kgrid .cell.nocurc{background:var(--bg);border-color:var(--line);color:var(--muted)}
+.kgrid .dot{position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.cdc .ore-n{font-size:.78rem;color:var(--muted);white-space:nowrap}
+.cdc .val{color:var(--accent);font-size:.86rem;font-weight:600}
+.star{color:var(--warn)}

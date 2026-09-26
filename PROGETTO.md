@@ -90,6 +90,7 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
   "orari": [ { "da": "08:00", "a": "08:55" }, { "da": "08:55", "a": "09:50" } ],
   "pause": [ { "dopo": 2, "da": "09:50", "a": "10:00", "nome": "Intervallo" } ],
   "io": "poletti-andrea",
+  "classi": { "1D": { "coord": "", "extra": [], "esclusi": [] } },
   "docenti": [
     { "id": "poletti-andrea",
       "nome": "Poletti Andrea",
@@ -122,6 +123,11 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
   Segna le ore in cui quel docente è **da solo** in classe. `normalizza()` la crea vuota se manca,
   quindi i dati e i backup precedenti restano importabili.
 - `io` è l'`id` del docente mostrato in home (cambiabile da Impostazioni).
+- `classi` (v1.4) contiene **solo le eccezioni fatte a mano** sul consiglio di classe: `coord` = id del
+  coordinatore (o `""`), `extra` = docenti aggiunti al CdC senza ore in griglia, `esclusi` = docenti con ore
+  in griglia tolti dal CdC. Il CdC vero si ricava sempre dalle griglie (`cdc(classe)`): chi ha almeno un'ora
+  in quella classe ne fa parte. `normalizza()` crea `classi: {}` se manca; `fondi()` lo conserva quando arriva
+  un nuovo tabellone; finisce anche in `data-enc.js` con *Esporta data-enc.js*.
 - Campi solo locali (mai in `data-enc.js`): `base` (= `meta.generato` dell'orario da cui derivano i dati),
   `baseIds` (docenti di quel tabellone), `man` (celle diverse dal tabellone, ricalcolate a ogni `salva()`),
   `manuale: true` sui docenti aggiunti dall'app o da CSV.
@@ -138,10 +144,27 @@ Un unico oggetto, uguale in `dati-originali.json`, dentro `data-enc.js` e nei ba
   La materia non si scrive mai sull'ora: arriva sempre dall'anagrafica del docente presente.
   Se in un'ora la materia cambia, si cambia il collega che occupa quell'ora.
 
+## 5b. Vista Classi (v1.4)
+
+Quarta scheda della tab bar. In cima le classi di `io` (quelle della sua griglia), sotto, a tendina, tutte
+le altre. Per la classe scelta:
+
+- **griglia settimanale**: in cella l'abbreviazione della materia curricolare (`ABBR`) e il cognome
+  (`cognomeBreve()`, aggiunge l'iniziale del nome se ci sono omonimi, es. Scaramuzza). L2, sostegno ed
+  educatori non stanno nell'etichetta ma nel **punto arancione**; se in quell'ora c'è solo supporto la cella
+  è grigia con la sua materia. Bordo blu = ore di `io`, bordo arancione = qualcuno segnato "da solo".
+  Toccando un'ora (`oraClasse`) si vede chi c'è e si toglie/aggiunge un collega: è la stessa operazione della
+  home, cioè si scrive o si svuota la classe nella griglia di quel docente.
+- **consiglio di classe**: ordinato per ruolo (curricolari, L2, sostegno, educatori) e materia, con le ore
+  settimanali. Toccando un nome (`membroCdc`): apri scheda (il ‹ riporta a Classi), segna/togli coordinatore
+  (★, anche sul chip della classe se il coordinatore è `io`), togli dal CdC. *Aggiungi al consiglio* e
+  *Tolti a mano → Rimetti* gestiscono le eccezioni senza toccare l'orario.
+
 ## 6. Come è organizzato `app.js`
 
 Sezioni, nell'ordine: utilità → crypto → stato → avvio/sblocco → query sui dati → render
-(`viewHome`, `viewColleghi`, `viewScheda`, `viewImpostazioni`) → modifica ora
+(`viewHome`, `viewColleghi`, `viewScheda`, `viewClassi` + `oraClasse`, `membroCdc`, `aggiungiCdc`,
+`viewImpostazioni`) → modifica ora
 (`editCella`, `pickCollega`) → anagrafica docenti (`editDocente`, `eliminaDocente`) →
 CSV colleghi (`csvDocenti`, `leggiCSV`, `importaCSV`) → modali → azioni impostazioni →
 navigazione → service worker.
@@ -233,6 +256,6 @@ sincronizzazione litiga con `.git`, mettere OneDrive in pausa durante i push.
 
 ## 10. Idee non implementate
 
-Vista per classe; evidenza dell'ora corrente in home; note per cella (oltre al testo libero);
+Evidenza dell'ora corrente in home; note per cella (oltre al testo libero);
 stampa/PDF della settimana; confronto fra due versioni dell'orario; elenco delle sole ore
 segnate come sostituzione.

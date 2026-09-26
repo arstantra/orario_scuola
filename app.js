@@ -1,4 +1,4 @@
-/* Orario T. Tasso — app.js  (v1.3)
+/* Orario T. Tasso — app.js  (v1.4)
    Vanilla JS, nessuna dipendenza. Dati cifrati AES-GCM, chiave da passphrase (PBKDF2).
    I dati modificati restano in localStorage, cifrati con la stessa chiave. */
 (function () {
@@ -75,6 +75,7 @@ async function decryptObj(p, key) {
 /* ============ stato ============ */
 let KEY = null, ORIGINALE = null, DATA = null;
 let tab = 'home', giorno = null, schedaId = null, filtro = '';
+let classeSel = null, ritorno = null;   // vista Classi; da dove si è aperta la scheda
 
 /* ============ avvio ============ */
 async function boot() {
@@ -334,6 +335,16 @@ function normalizza(d) {
     });
   });
   if (!d.docenti.some(t => t.id === d.io) && d.docenti.length) d.io = d.docenti[0].id;
+  /* consiglio di classe: solo le eccezioni fatte a mano, il resto si ricava dalle griglie */
+  if (!d.classi || typeof d.classi !== 'object' || Array.isArray(d.classi)) d.classi = {};
+  Object.keys(d.classi).forEach(c => {
+    const x = d.classi[c] || {};
+    d.classi[c] = {
+      coord: typeof x.coord === 'string' ? x.coord : '',
+      extra: Array.isArray(x.extra) ? x.extra.filter(id => typeof id === 'string') : [],
+      esclusi: Array.isArray(x.esclusi) ? x.esclusi.filter(id => typeof id === 'string') : []
+    };
+  });
 }
 
 function oggiOpp() {
@@ -397,12 +408,57 @@ function materie() {
   return [...s].sort();
 }
 
+/* ---- classi e consiglio di classe ---- */
+function mieClassi() {
+  const me = io(), s = new Set();
+  if (me) DATA.giorni.forEach(g => me.celle[g].forEach(v => { if (CLASSE.test(v)) s.add(v); }));
+  return [...s].sort();
+}
+function infoClasse(c) {
+  if (!DATA.classi[c]) DATA.classi[c] = { coord: '', extra: [], esclusi: [] };
+  return DATA.classi[c];
+}
+function oreInClasse(t, c) {
+  return DATA.giorni.reduce((a, g) => a + t.celle[g].filter(v => v === c).length, 0);
+}
+/** membri del CdC: chi ha la classe in griglia, meno gli esclusi, più gli aggiunti a mano */
+function cdc(c) {
+  const x = DATA.classi[c] || { coord: '', extra: [], esclusi: [] };
+  const membri = [], esclusi = [];
+  DATA.docenti.forEach(t => {
+    const ore = oreInClasse(t, c);
+    if (ore) { if (x.esclusi.indexOf(t.id) >= 0) esclusi.push(t); else membri.push({ t, ore, mano: false }); }
+    else if (x.extra.indexOf(t.id) >= 0) membri.push({ t, ore: 0, mano: true });
+  });
+  return { membri, esclusi, coord: byId(x.coord) || null };
+}
+const ORDINE_RUOLO = { curricolare: 0, l2: 1, sostegno: 2, educatore: 3 };
+const ABBR = {
+  'LETTERE': 'Lett', 'MATEMATICA': 'Mat', 'ITALIANO L2': 'L2', 'ED FISICA': 'Ed.F', 'TECNOLOGIA': 'Tec',
+  'ARTE': 'Arte', 'MUSICA': 'Mus', 'INGLESE': 'Ing', 'SPAGNOLO': 'Spa', 'FRANCESE': 'Fra', 'TEDESCO': 'Ted',
+  'RELIGIONE': 'Rel', 'SOSTEGNO': 'Sost', 'EDUCATRICE': 'Edu', 'EDUCATORE': 'Edu'
+};
+function materiaMini(t) {
+  const m = (t.materia || '').trim().toUpperCase();
+  return ABBR[m] || materiaBreve(t).slice(0, 4);
+}
+/** cognome breve; con cognomi uguali aggiunge l'iniziale del nome */
+function cognomeBreve(t) {
+  const p = String(t.nome || '').trim().split(/\s+/);
+  let n = 1;
+  if (p.length > 2 && /^(de|di|da|del|della|dal|la|lo|le|van|von|mc)$/i.test(p[0])) n = 2;
+  const cg = p.slice(0, n).join(' ');
+  const omonimi = DATA.docenti.some(o => o.id !== t.id && norm(o.nome).split(' ').slice(0, n).join(' ') === norm(cg));
+  return omonimi && p[n] ? cg + ' ' + p[n].charAt(0) + '.' : cg;
+}
+
 /* ============ render ============ */
 function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   const back = $('#backBtn');
   back.hidden = !(tab === 'colleghi' && schedaId);
   if (tab === 'home') { $('#title').textContent = 'Il mio orario'; viewHome(); }
+  else if (tab === 'classi') { $('#title').textContent = 'Classi'; viewClassi(); }
   else if (tab === 'colleghi') {
     if (schedaId) { $('#title').textContent = 'Scheda'; viewScheda(); }
     else { $('#title').textContent = 'Colleghi'; viewColleghi(); }
@@ -524,6 +580,172 @@ function viewScheda() {
   $('#delDoc').onclick = () => eliminaDocente(t.id);
 }
 
+/* ============ classi: quadro orario e consiglio di classe ============ */
+function viewClassi() {
+  const tutte = classi(), mie = mieClassi(), me = io();
+  if (!tutte.length) { $('#view').innerHTML = '<p class="hint">Nessuna classe in griglia.</p>'; return; }
+  if (!classeSel || tutte.indexOf(classeSel) < 0) classeSel = mie[0] || tutte[0];
+  const c = classeSel, info = cdc(c);
+  const coordIo = info.coord && me && info.coord.id === me.id;
+  const chip = x => `<button data-k="${x}" class="${x === c ? 'on' : ''}${DATA.classi[x] && me && DATA.classi[x].coord === me.id ? ' coord' : ''}">${x}</button>`;
+  const altre = tutte.filter(x => mie.indexOf(x) < 0);
+  let h = '';
+  if (mie.length) h += `<div class="sec">Le mie classi</div><div class="chips kl">${mie.map(chip).join('')}</div>`;
+  h += `<details class="altre"${mie.indexOf(c) < 0 ? ' open' : ''}><summary>Tutte le classi</summary><div class="chips kl">${altre.map(chip).join('')}</div></details>`;
+
+  /* griglia settimanale */
+  let tot = 0;
+  let g2 = `<div class="card"><div class="khead"><h2>${esc(c)}</h2>` +
+    (info.coord ? `<span class="coordtag">${coordIo ? 'Sei coordinatore' : 'Coord. ' + esc(cognomeBreve(info.coord))}</span>` : '') +
+    `</div><table class="grid kgrid"><thead><tr><th></th>` + DATA.giorni.map(g => `<th>${g}</th>`).join('') + '</tr></thead><tbody>';
+  for (let i = 0; i < NORE(); i++) {
+    g2 += `<tr><td class="h" title="${esc(fascia(DATA.orari[i]))}">${i + 1}ª</td>`;
+    for (const g of DATA.giorni) {
+      const p = compresenze(c, g, i);
+      /* in cella la materia curricolare; L2, sostegno ed educatori diventano il punto */
+      const tit = p.cur.length ? p.cur : p.l2, sup = (p.cur.length ? p.l2 : []).concat(p.sos, p.edu);
+      const tutti = tit.concat(sup);
+      if (tutti.length) tot++;
+      const conMe = me && tutti.some(t => t.id === me.id);
+      const solo = tutti.some(t => t.sost[K(g, i)]);
+      const vis = tit.length ? tit : sup;
+      const inner = !tutti.length ? '' :
+        `<b>${esc(vis.map(materiaMini).join('+'))}</b><small>${esc(vis.map(cognomeBreve).join(', '))}</small>` +
+        (tit.length && sup.length ? '<i class="dot" aria-label="con sostegno"></i>' : '');
+      const cls = 'cell' + (tutti.length ? ' has' : '') + (!tit.length && sup.length ? ' nocurc' : '') + (conMe ? ' me' : '') + (solo ? ' sos' : '');
+      g2 += `<td><button class="${cls}" data-kc="${g}|${i}">${inner}</button></td>`;
+    }
+    g2 += '</tr>';
+    const pz = pausaDopo(i + 1);
+    if (pz) g2 += `<tr class="rpausa"><td></td><td colspan="${DATA.giorni.length}">${esc((pz.nome || 'Intervallo') + ' · ' + fascia(pz))}</td></tr>`;
+  }
+  g2 += '</tbody></table></div>';
+  h += g2 + `<p class="hint">${tot} ore in griglia · il riquadro blu sono le tue ore, il punto indica L2, sostegno o educatore in classe<br>Tocca un'ora per vedere o cambiare chi c'è.</p>`;
+
+  /* consiglio di classe */
+  const m = info.membri.slice().sort((a, b) =>
+    (ORDINE_RUOLO[a.t.ruolo] - ORDINE_RUOLO[b.t.ruolo]) ||
+    materiaBreve(a.t).localeCompare(materiaBreve(b.t), 'it') || a.t.nome.localeCompare(b.t.nome, 'it'));
+  h += `<div class="sec">Consiglio di classe · ${m.length} docenti</div><ul class="list cdc">` +
+    m.map(x => `<li><button data-m="${x.t.id}">
+      <span class="nm">${esc(x.t.nome)}${info.coord && info.coord.id === x.t.id ? ' <span class="star" title="Coordinatore">★</span>' : ''}</span>
+      <span class="ore-n">${x.mano ? 'a mano' : x.ore + 'h'}</span>
+      <span class="tag ${x.t.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(x.t))}</span></button></li>`).join('') + '</ul>';
+  if (!m.length) h += '<p class="hint">Nessun docente.</p>';
+  h += '<button class="addbtn" id="cdcAdd">+ Aggiungi al consiglio di classe</button>';
+  if (info.esclusi.length) {
+    h += `<div class="sec">Tolti a mano</div><ul class="list cdc">` + info.esclusi.map(t => `<li><button data-rim="${t.id}">
+      <span class="nm muted">${esc(t.nome)}</span><span class="val">Rimetti</span></button></li>`).join('') + '</ul>';
+  }
+  h += '<p class="hint">Il consiglio si ricava dall\'orario: chi ha ore in questa classe ne fa parte. Tocca un nome per aprire la scheda, segnare il coordinatore o toglierlo.</p>';
+
+  $('#view').innerHTML = h;
+  document.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { classeSel = b.dataset.k; render(); });
+  document.querySelectorAll('[data-kc]').forEach(b => b.onclick = () => {
+    const [g, i] = b.dataset.kc.split('|'); oraClasse(c, g, +i);
+  });
+  document.querySelectorAll('[data-m]').forEach(b => b.onclick = () => membroCdc(c, b.dataset.m));
+  document.querySelectorAll('[data-rim]').forEach(b => b.onclick = () => {
+    const x = infoClasse(c); x.esclusi = x.esclusi.filter(id => id !== b.dataset.rim);
+    salva(); render(); toast('Rimesso nel consiglio');
+  });
+  $('#cdcAdd').onclick = () => aggiungiCdc(c);
+}
+
+/** chi c'è in quella classe a quell'ora: si toglie o si aggiunge scrivendo nella griglia del docente */
+function oraClasse(c, g, h) {
+  function disegna() {
+    const p = compresenze(c, g, h), tutti = p.cur.concat(p.l2, p.sos, p.edu);
+    let x = `<h3>${esc(c)} · ${DAYNAME[g] || g} · ${h + 1}ª ora</h3>
+      <p class="sub">${DATA.orari[h] ? esc(fascia(DATA.orari[h])) : ''}</p><ul class="who">`;
+    if (!tutti.length) x += `<li class="empty">Nessun docente in ${esc(c)} quest'ora</li>`;
+    tutti.forEach(o => {
+      x += `<li><span class="nm">${esc(o.nome)}${o.sost[K(g, h)] ? ' <span class="busy">da solo</span>' : ''}</span>
+        <span class="tag ${o.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(o))}</span>
+        <button class="x" data-del="${o.id}" aria-label="Togli">×</button></li>`;
+    });
+    x += `</ul><button class="addbtn" data-a="add">+ Aggiungi collega</button>
+      <div class="acts"><button data-a="done" class="primary">Fatto</button></div>`;
+    return x;
+  }
+  function bind(sc) {
+    sc.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+      const o = byId(b.dataset.del); if (!o) return;
+      o.celle[g][h] = ''; delete o.sost[K(g, h)];
+      salva(); render(); aggiorna(); toast(o.nome + ' tolto da quest\'ora');
+    });
+    sc.querySelector('[data-a="add"]').onclick = () => pickCollega(g, h, c, null, aggiorna);
+    sc.querySelector('[data-a="done"]').onclick = () => { chiudiTop(); render(); };
+  }
+  function aggiorna() {
+    const sc = $('#modalRoot .mask:last-child .sheet');
+    if (!sc) return;
+    sc.innerHTML = disegna(); bind(sc);
+  }
+  openModal(disegna(), root => bind(root.querySelector('.sheet')));
+}
+
+function membroCdc(c, id) {
+  const t = byId(id); if (!t) return;
+  const x = infoClasse(c), coord = x.coord === id, mano = oreInClasse(t, c) === 0;
+  openModal(`<h3>${esc(t.nome)}</h3>
+    <p class="sub">${esc(materiaBreve(t))} · ${esc(c)} · ${mano ? 'aggiunto a mano' : oreInClasse(t, c) + ' ore settimanali'}</p>
+    <div class="rows">
+      <button class="row" data-a="scheda"><span class="lbl">Apri scheda e orario</span><span class="val">›</span></button>
+      <button class="row" data-a="coord"><span class="lbl">${coord ? 'Non è più coordinatore' : 'Segna come coordinatore'}</span><span class="val">★</span></button>
+      <button class="row danger" data-a="togli"><span class="lbl">Togli dal consiglio di classe</span><span class="val">›</span></button>
+    </div>
+    <div class="acts"><button data-a="no">Chiudi</button></div>`, root => {
+    root.querySelector('[data-a="no"]').onclick = chiudiTop;
+    root.querySelector('[data-a="scheda"]').onclick = () => { closeModal(); schedaId = id; ritorno = 'classi'; tab = 'colleghi'; render(); };
+    root.querySelector('[data-a="coord"]').onclick = () => {
+      x.coord = coord ? '' : id; salva(); closeModal(); render();
+      toast(coord ? 'Coordinatore tolto' : t.nome + ' coordinatore di ' + c);
+    };
+    root.querySelector('[data-a="togli"]').onclick = () => {
+      if (mano) x.extra = x.extra.filter(k => k !== id);
+      else if (x.esclusi.indexOf(id) < 0) x.esclusi.push(id);
+      if (x.coord === id) x.coord = '';
+      salva(); closeModal(); render(); toast(t.nome + ' tolto dal consiglio');
+    };
+  });
+}
+
+/** aggiunge al CdC un docente che non ha ore in griglia in quella classe (o rimette un escluso) */
+function aggiungiCdc(c) {
+  let f = '';
+  function disegna() {
+    const q = norm(f), dentro = new Set(cdc(c).membri.map(m => m.t.id));
+    const lista = DATA.docenti.filter(o => !dentro.has(o.id))
+      .filter(o => !q || norm(o.nome + ' ' + (o.materia || '')).includes(q));
+    let x = `<h3>Aggiungi al consiglio di ${esc(c)}</h3>
+      <p class="sub">Per chi fa parte del consiglio ma non ha ore di ${esc(c)} in griglia. Non tocca l'orario.</p>
+      <input class="search" id="qa" type="search" placeholder="Cerca nome o materia" value="${esc(f)}">
+      <ul class="list">` + lista.map(o => `<li><button data-id="${o.id}">
+        <span class="nm">${esc(o.nome)}</span>
+        <span class="tag ${o.ruolo !== 'curricolare' ? 's' : ''}">${esc(materiaBreve(o))}</span></button></li>`).join('') + '</ul>';
+    if (!lista.length) x += '<p class="hint">Nessun risultato.</p>';
+    return x + '<div class="acts"><button data-a="chiudi">Chiudi</button></div>';
+  }
+  function bind(sc) {
+    const q = sc.querySelector('#qa');
+    q.oninput = () => {
+      f = q.value; const p = q.selectionStart;
+      sc.innerHTML = disegna(); bind(sc);
+      const n = sc.querySelector('#qa'); n.focus(); n.setSelectionRange(p, p);
+    };
+    sc.querySelectorAll('.list button').forEach(b => b.onclick = () => {
+      const o = byId(b.dataset.id); if (!o) return;
+      const x = infoClasse(c);
+      x.esclusi = x.esclusi.filter(k => k !== o.id);
+      if (!oreInClasse(o, c) && x.extra.indexOf(o.id) < 0) x.extra.push(o.id);
+      salva(); chiudiTop(); render(); toast(o.nome + ' aggiunto al consiglio');
+    });
+    sc.querySelector('[data-a="chiudi"]').onclick = chiudiTop;
+  }
+  openModal(disegna(), root => bind(root.querySelector('.sheet')));
+}
+
 function slotsHTML() {
   return timeline().map(it => {
     const o = it.o, pausa = it.tipo === 'pausa', key = (pausa ? 'pausa|' : 'ora|') + it.i, d = durata(o);
@@ -615,7 +837,7 @@ function viewImpostazioni() {
     <div class="row"><span class="lbl">Scuola</span><span class="val">${esc(m.scuola || '')}</span></div>
     <div class="row"><span class="lbl">Anno</span><span class="val">${esc(m.anno || '')}</span></div>
     <div class="row"><span class="lbl">Dati generati il</span><span class="val">${esc(dataGen(m.generato))}</span></div>
-    <div class="row"><span class="lbl">Versione app</span><span class="val">1.3</span></div></div>`;
+    <div class="row"><span class="lbl">Versione app</span><span class="val">1.4</span></div></div>`;
   h += '<p class="hint">Orario provvisorio: le modifiche fatte qui restano su questo dispositivo.</p>';
   $('#view').innerHTML = h;
 
@@ -713,7 +935,7 @@ function editCella(g, h, id) {
       salva(); render(); aggiorna(); toast(o.nome + ' tolto da quest\'ora');
     });
     const add = sc.querySelector('[data-a="add"]');
-    if (add) add.onclick = () => pickCollega(g, h, t, aggiorna);
+    if (add) add.onclick = () => pickCollega(g, h, t.celle[g][h], t.id, aggiorna);
     const sw = sc.querySelector('#solo');
     if (sw) sw.onchange = () => {
       if (sw.checked) t.sost[k] = 1; else delete t.sost[k];
@@ -737,14 +959,13 @@ function editCella(g, h, id) {
 }
 
 /** elenco per aggiungere un collega alla stessa classe/ora */
-function pickCollega(g, h, t, done) {
-  const classe = t.celle[g][h];
+function pickCollega(g, h, classe, escludiId, done) {
   let f = '';
 
   function disegna() {
     const q = norm(f);
     const lista = DATA.docenti
-      .filter(o => o.id !== t.id && o.celle[g][h] !== classe)
+      .filter(o => o.id !== escludiId && o.celle[g][h] !== classe)
       .filter(o => !q || norm(o.nome + ' ' + (o.materia || '')).includes(q));
     let x = `<h3>Aggiungi collega</h3>
       <p class="sub">${DAYNAME[g] || g} · ${h + 1}ª ora · ${esc(classe)}</p>
@@ -1014,9 +1235,11 @@ async function azione(a) {
 /* ============ navigazione ============ */
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'colleghi' && tab === 'colleghi') schedaId = null;
+  if (b.dataset.tab === 'colleghi' && ritorno) schedaId = null;
+  ritorno = null;
   tab = b.dataset.tab; render();
 });
-$('#backBtn').onclick = () => { schedaId = null; render(); };
+$('#backBtn').onclick = () => { schedaId = null; if (ritorno) { tab = ritorno; ritorno = null; } render(); };
 
 /* ============ service worker ============ */
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
